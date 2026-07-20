@@ -8,7 +8,7 @@ dependencies = [
     "easyocr>=1.7.0",
     "manga-ocr>=0.1.0",
     "numpy>=1.24.0",
-    "kanjiconv[unidic]>=0.3.0",
+    "kanjiconv>=0.3.0",
     "deep-translator>=1.11.0",
 ]
 
