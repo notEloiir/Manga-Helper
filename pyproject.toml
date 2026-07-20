@@ -1,0 +1,18 @@
+[project]
+name = "image-processor"
+version = "0.1.0"
+description = "Simple CLI tool to read and save images"
+requires-python = ">=3.8"
+dependencies = [
+    "pillow>=10.0.0",
+    "easyocr>=1.7.0",
+    "manga-ocr>=0.1.0",
+    "numpy>=1.24.0",
+]
+
+[project.scripts]
+image-processor = "main:main"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"

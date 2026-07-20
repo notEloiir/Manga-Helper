@@ -1,0 +1,8 @@
+*.egg-info
+
+uv.lock
+
+*.jpg
+*.jpeg
+*.png
+*.webp
