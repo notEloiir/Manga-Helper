@@ -8,12 +8,14 @@ from PIL import Image, ImageDraw
 import easyocr
 from manga_ocr import MangaOcr
 import numpy as np
+from kanjiconv import KanjiConv
+from deep_translator import GoogleTranslator
 
 
 # Global readers (initialized once for performance)
 _easyocr_reader = None
 _manga_ocr = None
-
+_kanjiconv = None
 
 def get_easyocr_reader():
     """Get or initialize the EasyOCR reader for text detection."""
@@ -172,6 +174,88 @@ def extract_text(image_path, text_regions):
     return texts
 
 
+def convert_to_hiragana(text):
+    """Convert Japanese text (kanji + hiragana) to hiragana phonetics.
+    
+    Uses kanjiconv to convert all characters to hiragana.
+    """
+    global _kanjiconv
+    if _kanjiconv is None:
+        _kanjiconv = KanjiConv(separator="", use_unidic=True)
+    _kanjiconv.separator = ""  # No separator for hiragana
+
+    try:
+        return _kanjiconv.to_hiragana(text)
+    except Exception as e:
+        print(f"Error converting to hiragana: {e}", file=sys.stderr)
+        return text
+
+
+def convert_to_romaji(text):
+    """Convert Japanese text to romaji (Latin script).
+    
+    Uses kanjiconv to convert all characters to romaji.
+    """
+    global _kanjiconv
+    if _kanjiconv is None:
+        _kanjiconv = KanjiConv(separator=" ", use_unidic=True)
+    _kanjiconv.separator = " "  # Ensure space between words for romaji
+
+    try:
+        return _kanjiconv.to_roman(text)
+    except Exception as e:
+        print(f"Error converting to romaji: {e}", file=sys.stderr)
+        return text
+
+
+def translate_with_context(texts):
+    """Translate Japanese text to English using full context.
+    
+    Combines all text snippets for better context-aware translation.
+    Returns list of translations in same order as input.
+    """
+    if not texts or all(not t for t in texts):
+        return [""] * len(texts)
+    
+    try:
+        translator = GoogleTranslator(source_language='ja', target_language='en')
+        
+        # Create context string from all non-empty texts
+        context = " ".join(t for t in texts if t.strip())
+        
+        # If context is too short, translate individual texts
+        if len(context) < 20:
+            return [translator.translate(t) if t.strip() else "" for t in texts]
+        
+        # For each text, include surrounding context for better translation
+        translations = []
+        for i, text in enumerate(texts):
+            if not text.strip():
+                translations.append("")
+                continue
+            
+            # Build context with this snippet highlighted
+            before = " ".join(texts[max(0, i-1):i])
+            after = " ".join(texts[i+1:min(len(texts), i+2)])
+            full_context = f"{before} {text} {after}".strip()
+            
+            # Translate with context
+            try:
+                translation = translator.translate(full_context)
+                # Extract just the translation of the main text
+                # This is a heuristic - we translate with context but the user sees full translation
+                translations.append(translation)
+            except Exception as e:
+                print(f"Error translating text: {e}", file=sys.stderr)
+                translations.append("")
+        
+        return translations
+    
+    except Exception as e:
+        print(f"Error initializing translator: {e}", file=sys.stderr)
+        return [""] * len(texts)
+
+
 def whiteout_text_areas(image_path, output_path, text_regions, opacity=0.8):
     """White out detected text areas with specified opacity.
     
@@ -256,11 +340,23 @@ def main():
         
         # Extract text using MangaOCR (handles vertical text)
         extracted_texts = extract_text(input_path, sorted_regions)
-        print("=== Detected Japanese Text (in reading order) ===")
-        for i, (text, region) in enumerate(zip(extracted_texts, sorted_regions), 1):
+        
+        # Get translations with full context
+        translations = translate_with_context(extracted_texts)
+        
+        print("=== Detected Japanese Text (in reading order) ===\n")
+        for i, (text, region, translation) in enumerate(zip(extracted_texts, sorted_regions, translations), 1):
             bbox = region[0]
             orientation = "vertical" if is_vertical_text(bbox) else "horizontal"
-            print(f"{i}. [{orientation}] {text}")
+            hiragana = convert_to_hiragana(text)
+            romaji = convert_to_romaji(text)
+            
+            print(f"{i}. [{orientation}]")
+            print(f"   Japanese: {text}")
+            print(f"   Hiragana: {hiragana}")
+            print(f"   Romaji:   {romaji}")
+            print(f"   English:  {translation}")
+            print()
         
         # Create output image with whited-out text
         extension = input_path.suffix.lower()
