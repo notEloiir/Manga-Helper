@@ -98,7 +98,7 @@ def translate_with_context(texts):
                 inputs = tokenizer(text, return_tensors="pt", truncation=True)
                 inputs = inputs.to(device)
                 model.to(device)
-                outputs = model.generate(**inputs, max_new_tokens=256)
+                outputs = model.generate(**inputs)
                 translated = tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
                 translations.append(translated)
             except Exception as e:

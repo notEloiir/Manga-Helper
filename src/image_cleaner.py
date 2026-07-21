@@ -1,6 +1,7 @@
 """Image cleaning module for removing and replacing text areas."""
 
 import sys
+from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw
 
@@ -88,6 +89,67 @@ def sample_background_color(image_array, bbox, border_px=5):
         return (255, 255, 255)
 
 
+def _extract_bbox(region):
+    if isinstance(region, np.ndarray):
+        if region.ndim == 2 and region.shape[1] == 2:
+            return [(int(point[0]), int(point[1])) for point in region]
+        region = region.tolist()
+
+    if isinstance(region, dict):
+        region = region.get("bbox", region)
+
+    if isinstance(region, (list, tuple)):
+        if len(region) == 0:
+            return []
+
+        # Region may be a direct list of points
+        if all(
+            isinstance(point, (list, tuple, np.ndarray)) and len(point) == 2
+            for point in region
+        ):
+            return [(int(point[0]), int(point[1])) for point in region]
+
+        # Region may be a tuple like (bbox, text, confidence)
+        first = region[0]
+        if isinstance(first, np.ndarray):
+            first = first.tolist()
+        if isinstance(first, (list, tuple)) and len(first) > 0 and all(
+            isinstance(point, (list, tuple, np.ndarray)) and len(point) == 2
+            for point in first
+        ):
+            return [(int(point[0]), int(point[1])) for point in first]
+
+    raise ValueError(f"Unable to extract bbox from region: {region}")
+
+
+def clean_image(image, text_regions, opacity=0.8):
+    """Return a cleaned PIL Image with text regions whiteouted.
+
+    Args:
+        image: PIL Image or image path
+        text_regions: list of bounding polygons or text region tuples
+        opacity: overlay opacity between 0.0 and 1.0
+    """
+    if not isinstance(image, Image.Image):
+        image = Image.open(image)
+    image = image.convert('RGBA')
+    rgb_image = image.convert('RGB')
+    img_array = np.array(rgb_image)
+
+    overlay = Image.new('RGBA', image.size, (255, 255, 255, 0))
+    overlay_draw = ImageDraw.Draw(overlay)
+    alpha = int(255 * opacity)
+
+    for region in text_regions:
+        bbox = _extract_bbox(region)
+        polygon = [(int(p[0]), int(p[1])) for p in bbox]
+        bg_color = sample_background_color(img_array, bbox)
+        overlay_color = bg_color + (alpha,)
+        overlay_draw.polygon(polygon, fill=overlay_color)
+
+    return Image.alpha_composite(image, overlay)
+
+
 def whiteout_text_areas(image_path, output_path, text_regions, opacity=0.8):
     """Clean text areas with background color and rounded corners.
     
@@ -97,40 +159,11 @@ def whiteout_text_areas(image_path, output_path, text_regions, opacity=0.8):
         text_regions: List of detected text regions with bboxes
         opacity: Opacity of overlay (0.0-1.0), where 1.0 is fully opaque
     """
-    # Open image and convert to RGBA for transparency support
-    image = Image.open(image_path).convert('RGBA')
-    img_array = np.array(Image.open(image_path))
-    width, height = image.size
-    
-    # Create overlay layer
-    overlay = Image.new('RGBA', image.size, (255, 255, 255, 0))
-    overlay_draw = ImageDraw.Draw(overlay)
-    
-    # Calculate alpha value (0-255 where 255 is fully opaque)
-    alpha = int(255 * opacity)
-    
-    # Process each text region
-    for region in text_regions:
-        bbox = region[0]
-        
-        # Convert bbox points to polygon coordinates
-        polygon = [(int(p[0]), int(p[1])) for p in bbox]
-        
-        # Sample background color from around the region
-        bg_color = sample_background_color(img_array, bbox)
-        overlay_color = bg_color + (alpha,)  # Add alpha channel
-        
-        # Draw filled polygon
-        overlay_draw.polygon(polygon, fill=overlay_color)
-    
-    # Composite the overlay onto the image
-    image = Image.alpha_composite(image, overlay)
-    
-    # Convert back to RGB for saving as JPG if needed
+    cleaned = clean_image(image_path, text_regions, opacity=opacity)
+
     if output_path.suffix.lower() in ['.jpg', '.jpeg']:
-        # For JPG, composite on a white background
-        background = Image.new('RGB', image.size, (255, 255, 255))
-        background.paste(image, mask=image.split()[3])
+        background = Image.new('RGB', cleaned.size, (255, 255, 255))
+        background.paste(cleaned, mask=cleaned.split()[3])
         background.save(output_path, quality=95)
     else:
-        image.save(output_path)
+        cleaned.save(output_path)
