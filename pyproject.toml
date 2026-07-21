@@ -21,7 +21,11 @@ dependencies = [
     "manga-ocr>=0.1.0",
     "numpy>=1.24.0",
     "kanjiconv>=0.3.0",
-    "deep-translator>=1.11.0",
+    "transformers>=4.40.0",
+    "sentencepiece>=0.1.99",
+    "torch>=2.0.0",
+    "huggingface-hub>=1.24.0",
+    "sacremoses>=0.1.0",
 ]
 
 [project.scripts]

@@ -8,7 +8,7 @@ import numpy as np
 import torch
 from PIL import Image
 import easyocr
-from manga_ocr import MangaOcr
+from huggingface_hub import snapshot_download
 
 
 # Global readers (initialized once for performance)
@@ -23,8 +23,16 @@ _MANGA_OCR_CACHE_DIR = _PROJECT_ROOT / ".cache" / "manga_ocr"
 _EASYOCR_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 _MANGA_OCR_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-# Force transformers to use the local MangaOCR cache directory
+# Prefer using the existing local Hugging Face hub cache when available
+_HUGGINGFACE_HUB_CACHE = Path(os.environ.get("HUGGINGFACE_HUB_CACHE", Path.home() / ".cache" / "huggingface" / "hub"))
+_HUGGINGFACE_HUB_CACHE.mkdir(parents=True, exist_ok=True)
+
+# Force transformers/hf hub environment variables to respect the local cache path
 os.environ.setdefault("TRANSFORMERS_CACHE", str(_MANGA_OCR_CACHE_DIR))
+os.environ.setdefault("HUGGINGFACE_HUB_CACHE", str(_HUGGINGFACE_HUB_CACHE))
+os.environ.setdefault("HF_HOME", str(_HUGGINGFACE_HUB_CACHE.parent))
+
+from manga_ocr import MangaOcr
 
 
 def _get_device_name():
@@ -58,7 +66,28 @@ def get_manga_ocr():
         device_name = _get_device_name()
         force_cpu = device_name == "cpu"
         print(f"Initializing manga OCR model on {device_name.upper()}...", file=sys.stderr)
-        _manga_ocr = MangaOcr(force_cpu=force_cpu)
+
+        model_name = "kha-white/manga-ocr-base"
+        local_model_dir = None
+
+        try:
+            cached_path = snapshot_download(
+                repo_id=model_name,
+                cache_dir=str(_HUGGINGFACE_HUB_CACHE),
+                local_files_only=True,
+            )
+            local_model_dir = Path(cached_path)
+            print(f"Using local MangaOCR cache at: {local_model_dir}", file=sys.stderr)
+        except Exception as e:
+            print(f"MangaOCR local cache lookup failed: {e}", file=sys.stderr)
+            local_model_dir = None
+
+        if local_model_dir and local_model_dir.exists():
+            _manga_ocr = MangaOcr(pretrained_model_name_or_path=str(local_model_dir), force_cpu=force_cpu)
+        else:
+            print("Falling back to remote MangaOCR repo URL. This may require internet access.", file=sys.stderr)
+            _manga_ocr = MangaOcr(force_cpu=force_cpu)
+
     return _manga_ocr
 
 
