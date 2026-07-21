@@ -384,12 +384,16 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.information(self, "Save Image", "Open an image first before saving.")
             return
 
-        path, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self,
-            "Save cleaned image",
-            filter="PNG image (*.png);;JPEG image (*.jpg *.jpeg);;All files (*)",
-            defaultSuffix="png",
-        )
+        dialog = QtWidgets.QFileDialog(self, "Save cleaned image")
+        dialog.setAcceptMode(QtWidgets.QFileDialog.AcceptSave)
+        dialog.setNameFilters(["JPEG image (*.jpg *.jpeg)", "PNG image (*.png)", "All files (*)"])
+        default_suffix = self.current_image_path.suffix.lower() if self.current_image_path else "png"
+        dialog.setDefaultSuffix(default_suffix)
+        if dialog.exec():
+            path = dialog.selectedFiles()[0]
+        else:
+            return
+
         if not path:
             return
 
@@ -408,27 +412,26 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         else:
             image_to_save.save(output_path)
 
-        self.export_text(output_path.with_suffix(".txt"))
         self.unsaved_changes = False
         self.set_status(f"Saved cleaned image and text export to {output_path.name}")
 
-    def export_text(self, forced_path=None):
+    def export_text(self):
         if self.current_image_path is None:
             QtWidgets.QMessageBox.information(self, "Export Text", "Open an image first before exporting text.")
             return
 
-        if forced_path is None:
-            path, _ = QtWidgets.QFileDialog.getSaveFileName(
-                self,
-                "Export detected text",
-                filter="Text file (*.txt);;All files (*)",
-                defaultSuffix="txt",
-            )
-            if not path:
-                return
-            export_path = Path(path)
+        dialog = QtWidgets.QFileDialog(self, "Export detected text")
+        dialog.setAcceptMode(QtWidgets.QFileDialog.AcceptSave)
+        dialog.setNameFilters(["Text file (*.txt);;All files (*)"])
+        dialog.setDefaultSuffix("txt")
+        if dialog.exec():
+            path = dialog.selectedFiles()[0]
         else:
-            export_path = Path(forced_path)
+            return
+
+        if not path:
+            return
+        export_path = Path(path)
 
         with export_path.open("w", encoding="utf-8") as handle:
             handle.write(f"Image: {self.current_image_path.name}\n")
