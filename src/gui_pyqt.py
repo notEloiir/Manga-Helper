@@ -393,6 +393,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         if not path:
             return
 
+        # Apply the modifications to original image now
         image_to_save = clean_image(self.original_image, [region['bbox'] for region in self.region_data], opacity=0.9)
         image_to_save = self.render_user_text_overlay(image_to_save)
 

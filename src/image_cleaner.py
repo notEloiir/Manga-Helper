@@ -146,22 +146,3 @@ def clean_image(image, text_regions, opacity=0.8):
         overlay_draw.polygon(polygon, fill=overlay_color)
 
     return Image.alpha_composite(image, overlay)
-
-
-def clean_text_areas(image, output_path, text_regions, opacity=0.8):
-    """Clean text areas with background color and rounded corners.
-    
-    Args:
-        image: PIL Image object
-        output_path: Path to save output image
-        text_regions: List of detected text regions with bboxes
-        opacity: Opacity of overlay (0.0-1.0), where 1.0 is fully opaque
-    """
-    cleaned = clean_image(image, text_regions, opacity=opacity)
-
-    if output_path.suffix.lower() in ['.jpg', '.jpeg']:
-        background = Image.new('RGB', cleaned.size, (255, 255, 255))
-        background.paste(cleaned, mask=cleaned.split()[3])
-        background.save(output_path, quality=95)
-    else:
-        cleaned.save(output_path)

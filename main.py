@@ -4,11 +4,12 @@
 import sys
 import argparse
 from pathlib import Path
+from PIL import Image
 
 # Import from modules
 from src.ocr import detect_text_regions, sort_text_regions, extract_text, is_vertical_text
 from src.text_processor import convert_to_hiragana, convert_to_romaji, translate_with_context
-from src.image_cleaner import clean_text_areas
+from src.image_cleaner import clean_image
 
 
 def main():
@@ -38,7 +39,7 @@ def main():
     try:
         print(f"Processing: {input_path}", file=sys.stderr)
 
-        image = Image.open(image_path)
+        image = Image.open(input_path)
         
         # Detect text regions
         text_regions = detect_text_regions(input_path)
@@ -78,9 +79,16 @@ def main():
         output_filename = f"output{extension}"
         output_path = input_path.parent / output_filename
         
-        clean_text_areas(image, output_path, sorted_regions, opacity=0.9)
+        cleaned = clean_image(image, text_regions, opacity=0.8)
+
+        if output_path.suffix.lower() in ['.jpg', '.jpeg']:
+            background = Image.new('RGB', cleaned.size, (255, 255, 255))
+            background.paste(cleaned, mask=cleaned.split()[3])
+            background.save(output_path, quality=95)
+        else:
+            cleaned.save(output_path)
         
-        print(f"\n✓ Processed image saved to: {output_path}", file=sys.stderr)
+        print(f"\nProcessed image saved to: {output_path}", file=sys.stderr)
         
     except Exception as e:
         print(f"Error processing image: {e}", file=sys.stderr)
