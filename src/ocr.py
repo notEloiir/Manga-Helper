@@ -1,7 +1,11 @@
 """OCR module for text detection and extraction from manga images."""
 
+import os
 import sys
+from pathlib import Path
+
 import numpy as np
+import torch
 from PIL import Image
 import easyocr
 from manga_ocr import MangaOcr
@@ -12,12 +16,38 @@ _easyocr_reader = None
 _manga_ocr = None
 
 
+# Local cache directories for downloaded model assets
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_EASYOCR_CACHE_DIR = _PROJECT_ROOT / ".cache" / "easyocr"
+_MANGA_OCR_CACHE_DIR = _PROJECT_ROOT / ".cache" / "manga_ocr"
+_EASYOCR_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+_MANGA_OCR_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+# Force transformers to use the local MangaOCR cache directory
+os.environ.setdefault("TRANSFORMERS_CACHE", str(_MANGA_OCR_CACHE_DIR))
+
+
+def _get_device_name():
+    if torch.cuda.is_available():
+        return "cuda"
+    if torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
+
+
 def get_easyocr_reader():
     """Get or initialize the EasyOCR reader for text detection."""
     global _easyocr_reader
     if _easyocr_reader is None:
-        print("Initializing text detection model...", file=sys.stderr)
-        _easyocr_reader = easyocr.Reader(['ja'], gpu=False)
+        device_name = _get_device_name()
+        use_gpu = device_name == "cuda"
+        print(f"Initializing text detection model on {device_name.upper()}...", file=sys.stderr)
+        _easyocr_reader = easyocr.Reader(
+            ['ja'],
+            gpu=use_gpu,
+            model_storage_directory=str(_EASYOCR_CACHE_DIR),
+            download_enabled=True,
+        )
     return _easyocr_reader
 
 
@@ -25,8 +55,10 @@ def get_manga_ocr():
     """Get or initialize the MangaOCR reader for vertical text recognition."""
     global _manga_ocr
     if _manga_ocr is None:
-        print("Initializing manga OCR model...", file=sys.stderr)
-        _manga_ocr = MangaOcr()
+        device_name = _get_device_name()
+        force_cpu = device_name == "cpu"
+        print(f"Initializing manga OCR model on {device_name.upper()}...", file=sys.stderr)
+        _manga_ocr = MangaOcr(force_cpu=force_cpu)
     return _manga_ocr
 
 
