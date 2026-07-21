@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 from functools import partial
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from src.image_cleaner import clean_image
@@ -466,7 +466,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         else:
             event.ignore()
 
-    def render_user_text_overlay(self, image):
+    def render_user_text_overlay(self, image, text_bg_dilation=2):
         draw = ImageDraw.Draw(image)
         font = self.create_font()
         for region in self.region_data:
@@ -489,8 +489,16 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
                 px = box[0]
                 py = box[1]
 
-            background = (255, 255, 255, 230)
-            draw.rectangle([px - 4, py - 4, px + text_width + 4, py + text_height + 4], fill=background)
+            # Draw text background - not a rectangle but the area of letters dilated by 2px
+            # This is a more complex operation and requires getting the mask of the text and dilating it
+            temp_image = Image.new("L", image.size, 0)
+            temp_draw = ImageDraw.Draw(temp_image)
+            temp_draw.text((px, py), text, fill=255, font=font)
+            dilation_filter = ImageFilter.MaxFilter(1 + 2*text_bg_dilation)
+            dilated_mask = temp_image.filter(dilation_filter)
+            background_overlay = Image.new("RGBA", image.size, (255, 255, 255, 255))
+            image.paste(background_overlay, (0, 0), dilated_mask)
+
             draw.text((px, py), text, fill=(0, 0, 0, 255), font=font)
 
         return image
