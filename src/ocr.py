@@ -103,17 +103,13 @@ def detect_text_regions(image_path):
     return results
 
 
-def extract_text_from_region(image, bbox):
+def extract_text_from_region(image: Image.Image, bbox: list):
     """Extract text from a specific region using MangaOCR.
     
     Handles both vertical and horizontal Japanese text correctly.
     """
     try:
-        # Convert PIL image to numpy array if needed
-        if isinstance(image, Image.Image):
-            img_array = np.array(image)
-        else:
-            img_array = image
+        img_array = np.array(image)
         
         # Get bounding box coordinates
         points = np.array(bbox, dtype=np.int32)
@@ -208,23 +204,20 @@ def sort_text_regions(text_regions):
     return sorted_regions
 
 
-def extract_text(image_path, text_regions):
+def extract_text(image: Image.Image, text_regions: list):
     """Extract Japanese text from detected regions using MangaOCR.
     
     Properly handles both vertical and horizontal Japanese text.
     
     Returns list of strings in reading order.
     """
-    # Open the full image
-    image = Image.open(image_path)
-    img_array = np.array(image)
     
     texts = []
     for region in text_regions:
         bbox = region[0]
         
         # Use MangaOCR to properly extract text from this region
-        text = extract_text_from_region(img_array, bbox)
+        text = extract_text_from_region(image, bbox)
         texts.append(text)
     
     return texts

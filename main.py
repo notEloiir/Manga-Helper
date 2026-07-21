@@ -8,7 +8,7 @@ from pathlib import Path
 # Import from modules
 from src.ocr import detect_text_regions, sort_text_regions, extract_text, is_vertical_text
 from src.text_processor import convert_to_hiragana, convert_to_romaji, translate_with_context
-from src.image_cleaner import whiteout_text_areas
+from src.image_cleaner import clean_text_areas
 
 
 def main():
@@ -37,6 +37,8 @@ def main():
     
     try:
         print(f"Processing: {input_path}", file=sys.stderr)
+
+        image = Image.open(image_path)
         
         # Detect text regions
         text_regions = detect_text_regions(input_path)
@@ -49,7 +51,7 @@ def main():
         sorted_regions = sort_text_regions(text_regions)
         
         # Extract text using MangaOCR (handles vertical text)
-        extracted_texts = extract_text(input_path, sorted_regions)
+        extracted_texts = extract_text(image, sorted_regions)
         
         # Get translations with full context
         translations = translate_with_context(extracted_texts)
@@ -76,7 +78,7 @@ def main():
         output_filename = f"output{extension}"
         output_path = input_path.parent / output_filename
         
-        whiteout_text_areas(input_path, output_path, sorted_regions, opacity=0.9)
+        clean_text_areas(image, output_path, sorted_regions, opacity=0.9)
         
         print(f"\n✓ Processed image saved to: {output_path}", file=sys.stderr)
         

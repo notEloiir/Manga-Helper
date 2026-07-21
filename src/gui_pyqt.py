@@ -225,7 +225,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         
         # todo
         # Doesn't need to be done each time but for now it's faster since image is not loaded per instance but function call ...
-        extracted_texts = extract_text(self.current_image_path, sorted_regions)
+        extracted_texts = extract_text(self.original_image, sorted_regions)
         translations = translate_with_context(extracted_texts)
         
         if replace_all:

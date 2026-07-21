@@ -123,15 +123,13 @@ def _extract_bbox(region):
 
 
 def clean_image(image, text_regions, opacity=0.8):
-    """Return a cleaned PIL Image with text regions whiteouted.
+    """Return a PIL Image with text regions cleaned using background colour.
 
     Args:
-        image: PIL Image or image path
+        image: PIL Image object
         text_regions: list of bounding polygons or text region tuples
         opacity: overlay opacity between 0.0 and 1.0
     """
-    if not isinstance(image, Image.Image):
-        image = Image.open(image)
     image = image.convert('RGBA')
     rgb_image = image.convert('RGB')
     img_array = np.array(rgb_image)
@@ -150,16 +148,16 @@ def clean_image(image, text_regions, opacity=0.8):
     return Image.alpha_composite(image, overlay)
 
 
-def whiteout_text_areas(image_path, output_path, text_regions, opacity=0.8):
+def clean_text_areas(image, output_path, text_regions, opacity=0.8):
     """Clean text areas with background color and rounded corners.
     
     Args:
-        image_path: Path to input image
+        image: PIL Image object
         output_path: Path to save output image
         text_regions: List of detected text regions with bboxes
         opacity: Opacity of overlay (0.0-1.0), where 1.0 is fully opaque
     """
-    cleaned = clean_image(image_path, text_regions, opacity=opacity)
+    cleaned = clean_image(image, text_regions, opacity=opacity)
 
     if output_path.suffix.lower() in ['.jpg', '.jpeg']:
         background = Image.new('RGB', cleaned.size, (255, 255, 255))
