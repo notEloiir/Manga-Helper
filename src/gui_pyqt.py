@@ -64,6 +64,8 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.font_size = 24
         self.text_center = True
         self.text_padding = -16
+        self.text_color = (0, 0, 0)  # Black
+        self.text_bg_color = (255, 255, 255)  # White
 
         self._ignore_user_text = False
         self._ignore_clean_checkbox = False
@@ -268,6 +270,20 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.angle_label.setFixedWidth(40)
         angle_layout.addWidget(self.angle_label)
         settings_layout.addRow("Angle:", angle_widget)
+
+        self.text_color_button = QtWidgets.QPushButton()
+        self.text_color_button.setFixedHeight(30)
+        self.text_color_button.setToolTip("Click to change text color")
+        self.text_color_button.clicked.connect(self.on_text_color_clicked)
+        self.update_text_color_button()
+        settings_layout.addRow("Text Color:", self.text_color_button)
+
+        self.text_bg_color_button = QtWidgets.QPushButton()
+        self.text_bg_color_button.setFixedHeight(30)
+        self.text_bg_color_button.setToolTip("Click to change text background color")
+        self.text_bg_color_button.clicked.connect(self.on_text_bg_color_clicked)
+        self.update_text_bg_color_button()
+        settings_layout.addRow("BG Color:", self.text_bg_color_button)
 
         middle_layout.addWidget(settings_group)
         middle_layout.addStretch(1)
@@ -671,6 +687,40 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.unsaved_changes = True
         self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
 
+    def on_text_color_clicked(self):
+        color = QtWidgets.QColorDialog.getColor(
+            QtGui.QColor(*self.text_color),
+            self,
+            "Select Text Color"
+        )
+        if color.isValid():
+            self.text_color = (color.red(), color.green(), color.blue())
+            self.update_text_color_button()
+            self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
+
+    def on_text_bg_color_clicked(self):
+        color = QtWidgets.QColorDialog.getColor(
+            QtGui.QColor(*self.text_bg_color),
+            self,
+            "Select Text Background Color"
+        )
+        if color.isValid():
+            self.text_bg_color = (color.red(), color.green(), color.blue())
+            self.update_text_bg_color_button()
+            self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
+
+    def update_text_color_button(self):
+        r, g, b = self.text_color
+        self.text_color_button.setStyleSheet(
+            f"background-color: rgb({r}, {g}, {b}); color: rgb({255-r}, {255-g}, {255-b});"
+        )
+
+    def update_text_bg_color_button(self):
+        r, g, b = self.text_bg_color
+        self.text_bg_color_button.setStyleSheet(
+            f"background-color: rgb({r}, {g}, {b}); color: rgb({255-r}, {255-g}, {255-b});"
+        )
+
     def create_font(self):
         try:
             font_path = self.resolve_font_path(self.font_family)
@@ -795,7 +845,8 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             text_height = text_bbox[3] - text_bbox[1]
             text_image = Image.new("RGBA", (text_width + 4, text_height + 4), (0, 0, 0, 0))
             temp_draw = ImageDraw.Draw(text_image)
-            temp_draw.text((2, 2), text, fill=(0, 0, 0, 255), font=font)
+            text_color_with_alpha = self.text_color + (255,)
+            temp_draw.text((2, 2), text, fill=text_color_with_alpha, font=font)
 
             angle = float(region.angle)
             if angle != 0.0:
@@ -816,7 +867,8 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             # Draw background behind rotated text using dilated alpha mask.
             dilation_filter = ImageFilter.MaxFilter(1 + 2 * text_bg_dilation)
             dilated_mask = rotated_mask.filter(dilation_filter)
-            background_overlay = Image.new("RGBA", rotated_text.size, (255, 255, 255, 255))
+            bg_color_with_alpha = self.text_bg_color + (255,)
+            background_overlay = Image.new("RGBA", rotated_text.size, bg_color_with_alpha)
             image.paste(background_overlay, (px, py), dilated_mask)
             image.paste(rotated_text, (px, py), rotated_text)
 
