@@ -91,6 +91,33 @@ def get_manga_ocr():
     return _manga_ocr
 
 
+def _bboxes_overlap_or_close(bbox1, bbox2, threshold=0):
+    """Check if two bounding boxes overlap or are very close to each other."""
+    x1_min, y1_min = np.min(bbox1, axis=0)
+    x1_max, y1_max = np.max(bbox1, axis=0)
+    x2_min, y2_min = np.min(bbox2, axis=0)
+    x2_max, y2_max = np.max(bbox2, axis=0)
+
+    # Check for overlap
+    overlap_x = max(0, min(x1_max, x2_max) - max(x1_min, x2_min))
+    overlap_y = max(0, min(y1_max, y2_max) - max(y1_min, y2_min))
+    if overlap_x > 0 and overlap_y > 0:
+        return True
+
+    # Check for proximity (distance between boxes)
+    dist_x = max(0, max(x1_min - x2_max, x2_min - x1_max))
+    dist_y = max(0, max(y1_min - y2_max, y2_min - y1_max))
+    return dist_x < threshold and dist_y < threshold
+
+
+def _merge_bboxes(bbox1, bbox2):
+    """Merge two bounding boxes into one that encompasses both."""
+    all_points = np.vstack((bbox1, bbox2))
+    x_min, y_min = np.min(all_points, axis=0)
+    x_max, y_max = np.max(all_points, axis=0)
+    return [(x_min, y_min), (x_max, y_min), (x_max, y_max), (x_min, y_max)]
+
+
 def detect_text_regions(image_path):
     """Detect text regions in the image using EasyOCR.
     
@@ -99,6 +126,28 @@ def detect_text_regions(image_path):
     """
     reader = get_easyocr_reader()
     results = reader.readtext(str(image_path), detail=1)
+
+    # Merge overlapping or very close bounding boxes to reduce duplicates
+    found_overlapping = True
+    while found_overlapping:
+        found_overlapping = False
+        for i in range(len(results)):
+            bbox1, text1, conf1 = results[i]
+            for j in range(i + 1, len(results)):
+                bbox2, text2, conf2 = results[j]
+                # Check if bounding boxes overlap or are very close
+                if _bboxes_overlap_or_close(bbox1, bbox2):
+                    # Merge the two boxes
+                    merged_bbox = _merge_bboxes(bbox1, bbox2)
+                    merged_text = f"{text1} {text2}".strip()
+                    merged_conf = max(conf1, conf2)
+                    results.append((merged_bbox, merged_text, merged_conf))
+                    results.pop(j)
+                    results.pop(i)
+                    found_overlapping = True
+                    break
+            if found_overlapping:
+                break
     
     return results
 
