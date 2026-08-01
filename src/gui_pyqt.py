@@ -33,6 +33,7 @@ class RegionData:
     user_text: str = ""
     orientation: str = "horizontal"
     confidence: float | None = None
+    angle: float = 0.0
     to_update: bool = False
     clean_region: bool = True
 
@@ -60,6 +61,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
 
         self._ignore_user_text = False
         self._ignore_clean_checkbox = False
+        self._ignore_angle_slider = False
 
         self.setup_ui()
 
@@ -107,6 +109,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.setStatusBar(self.status_bar)
         self.set_status("Open an image to begin.")
 
+        # Text editing column
         middle_panel = QtWidgets.QWidget()
         middle_layout = QtWidgets.QVBoxLayout(middle_panel)
         middle_layout.setContentsMargins(4, 4, 4, 4)
@@ -147,9 +150,24 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.padding_spin.valueChanged.connect(self.on_font_settings_changed)
         settings_layout.addRow("Padding:", self.padding_spin)
 
+        angle_widget = QtWidgets.QWidget()
+        angle_layout = QtWidgets.QHBoxLayout(angle_widget)
+        angle_layout.setContentsMargins(0, 0, 0, 0)
+        self.angle_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+        self.angle_slider.setRange(-90, 90)
+        self.angle_slider.setValue(0)
+        self.angle_slider.setSingleStep(1)
+        self.angle_slider.valueChanged.connect(self.on_angle_changed)
+        angle_layout.addWidget(self.angle_slider)
+        self.angle_label = QtWidgets.QLabel("0°")
+        self.angle_label.setFixedWidth(40)
+        angle_layout.addWidget(self.angle_label)
+        settings_layout.addRow("Angle:", angle_widget)
+
         middle_layout.addWidget(settings_group)
         middle_layout.addStretch(1)
 
+        # Region details and controls column
         right_panel = QtWidgets.QWidget()
         right_layout = QtWidgets.QVBoxLayout(right_panel)
         right_layout.setContentsMargins(4, 4, 4, 4)
@@ -353,6 +371,11 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             self.clean_checkbox.setChecked(False)
             self._ignore_clean_checkbox = False
             self.clean_checkbox.setEnabled(False)
+            self._ignore_angle_slider = True
+            self.angle_slider.setValue(0)
+            self.angle_label.setText("0°")
+            self._ignore_angle_slider = False
+            self.angle_slider.setEnabled(False)
             self.update_region_control_buttons()
             return
 
@@ -377,6 +400,13 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.clean_checkbox.setChecked(region.clean_region)
         self._ignore_clean_checkbox = False
         self.clean_checkbox.setEnabled(True)
+
+        self._ignore_angle_slider = True
+        self.angle_slider.setValue(int(region.angle))
+        self.angle_label.setText(f"{int(region.angle)}°")
+        self._ignore_angle_slider = False
+        self.angle_slider.setEnabled(True)
+
         self.update_region_control_buttons()
 
     def update_region_control_buttons(self):
@@ -486,6 +516,14 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.font_size = self.font_size_spin.value()
         self.text_center = self.center_check.isChecked()
         self.text_padding = self.padding_spin.value()
+        self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
+
+    def on_angle_changed(self, value):
+        self.angle_label.setText(f"{value}°")
+        if self._ignore_angle_slider or self.selected_index is None:
+            return
+        self.region_data[self.selected_index].angle = float(value)
+        self.unsaved_changes = True
         self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
 
     def create_font(self):
@@ -600,28 +638,36 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             x1, y1 = region.bbox[2]
             padding = self.text_padding
             box = (x0 + padding, y0 + padding, x1 - padding, y1 - padding)
-            text_size = draw.textbbox((0, 0), text, font=font)
-            text_width = text_size[2] - text_size[0]
-            text_height = text_size[3] - text_size[1]
+
+            text_bbox = draw.textbbox((0, 0), text, font=font)
+            text_width = text_bbox[2] - text_bbox[0]
+            text_height = text_bbox[3] - text_bbox[1]
+            text_image = Image.new("RGBA", (text_width + 4, text_height + 4), (0, 0, 0, 0))
+            temp_draw = ImageDraw.Draw(text_image)
+            temp_draw.text((2, 2), text, fill=(0, 0, 0, 255), font=font)
+
+            angle = float(region.angle)
+            if angle != 0.0:
+                rotated_text = text_image.rotate(angle, resample=Image.BICUBIC, expand=True)
+            else:
+                rotated_text = text_image
+
+            rotated_mask = rotated_text.split()[3]
+            rotated_width, rotated_height = rotated_text.size
 
             if self.text_center:
-                px = box[0] + max(0, (box[2] - box[0] - text_width) // 2)
-                py = box[1] + max(0, (box[3] - box[1] - text_height) // 2)
+                px = box[0] + max(0, (box[2] - box[0] - rotated_width) // 2)
+                py = box[1] + max(0, (box[3] - box[1] - rotated_height) // 2)
             else:
                 px = box[0]
                 py = box[1]
 
-            # Draw text background - not a rectangle but the area of letters dilated by 2px
-            # This is a more complex operation and requires getting the mask of the text and dilating it
-            temp_image = Image.new("L", image.size, 0)
-            temp_draw = ImageDraw.Draw(temp_image)
-            temp_draw.text((px, py), text, fill=255, font=font)
-            dilation_filter = ImageFilter.MaxFilter(1 + 2*text_bg_dilation)
-            dilated_mask = temp_image.filter(dilation_filter)
-            background_overlay = Image.new("RGBA", image.size, (255, 255, 255, 255))
-            image.paste(background_overlay, (0, 0), dilated_mask)
-
-            draw.text((px, py), text, fill=(0, 0, 0, 255), font=font)
+            # Draw background behind rotated text using dilated alpha mask.
+            dilation_filter = ImageFilter.MaxFilter(1 + 2 * text_bg_dilation)
+            dilated_mask = rotated_mask.filter(dilation_filter)
+            background_overlay = Image.new("RGBA", rotated_text.size, (255, 255, 255, 255))
+            image.paste(background_overlay, (px, py), dilated_mask)
+            image.paste(rotated_text, (px, py), rotated_text)
 
         return image
 
