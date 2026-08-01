@@ -3,6 +3,9 @@
 import sys
 from pathlib import Path
 from functools import partial
+from urllib.request import urlopen
+from urllib.parse import urlparse
+import shutil
 
 from dataclasses import dataclass
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
@@ -66,6 +69,10 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self._ignore_clean_checkbox = False
         self._ignore_angle_slider = False
         self._ignore_font_combo = False
+
+        # Create tmp directory for downloads
+        self.tmp_dir = Path("./tmp")
+        self.tmp_dir.mkdir(exist_ok=True)
 
         self.setup_ui()
 
@@ -146,8 +153,12 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.addToolBar(toolbar)
 
         # File actions
-        open_action = QtGui.QAction("Open Image", self)
+        open_action = QtGui.QAction("Open Image File", self)
         open_action.triggered.connect(self.open_image)
+        toolbar.addAction(open_action)
+
+        open_action = QtGui.QAction("Open Image URL", self)
+        open_action.triggered.connect(self.open_image_from_url)
         toolbar.addAction(open_action)
 
         save_action = QtGui.QAction("Save Image", self)
@@ -218,10 +229,11 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.font_combo.addItems(sorted(self.available_fonts.keys()))
         self.font_combo.setCurrentText(self.font_family)
         self.font_combo.currentTextChanged.connect(self.on_font_settings_changed)
+        self.font_combo.setMaximumWidth(200)
         settings_layout.addRow("Font:", self.font_combo)
 
         self.font_size_spin = QtWidgets.QSpinBox()
-        self.font_size_spin.setRange(8, 128)
+        self.font_size_spin.setRange(8, 512)
         self.font_size_spin.setValue(self.font_size)
         self.font_size_spin.valueChanged.connect(self.on_font_settings_changed)
         settings_layout.addRow("Size:", self.font_size_spin)
@@ -312,6 +324,44 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             return
 
         self.load_image(Path(path))
+
+    def open_image_from_url(self):
+        if not self.maybe_prompt_save():
+            return
+
+        dialog = QtWidgets.QInputDialog(self)
+        dialog.setWindowTitle("Open Image from URL")
+        dialog.setLabelText("Enter the image URL:")
+        dialog.setMinimumWidth(600)
+        dialog.exec()
+        
+        if not dialog.result() == QtWidgets.QDialog.Accepted:
+            return
+        
+        url = dialog.textValue().strip()
+        if not url:
+            return
+
+        self.set_status("Downloading image...")
+        QtWidgets.QApplication.processEvents()
+
+        # Extract file extension from URL and download to tmp directory
+        parsed_url = urlparse(url)
+        url_path = parsed_url.path
+        file_ext = Path(url_path).suffix if url_path else ".png"
+        if not file_ext:
+            file_ext = ".png"
+        
+        temp_path = self.tmp_dir / f"downloaded_image{file_ext}"
+        try:
+            with urlopen(url) as response:
+                with open(temp_path, 'wb') as out_file:
+                    out_file.write(response.read())
+            self.load_image(temp_path)
+        except Exception as exc:
+            QtWidgets.QMessageBox.critical(self, "Download Error", f"Failed to download image:\n{exc}")
+            if temp_path.exists():
+                temp_path.unlink()
 
     def load_image(self, path):
         try:
@@ -708,6 +758,9 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
 
     def closeEvent(self, event):
         if self.maybe_prompt_save():
+            # Clean up tmp directory
+            if self.tmp_dir.exists():
+                shutil.rmtree(self.tmp_dir)
             event.accept()
         else:
             event.ignore()
