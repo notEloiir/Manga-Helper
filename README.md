@@ -1,6 +1,6 @@
 # Manga Helper
 
-A CLI tool for learning and assisting with manga translation. It extracts Japanese text from manga images and provides multiple representations to help readers who understand spoken Japanese but need help with kanji.
+A GUI-first tool for learning and assisting with manga translation. It extracts Japanese text from manga images and provides multiple representations to help readers who understand spoken Japanese but need help with kanji.
 
 ## Features
 
@@ -33,30 +33,37 @@ pip install -e .
 
 ## Usage
 
-```bash
-manga-translator <image_path>
-```
+GUI (recommended)
 
-### Example
+Run the graphical interface from the project root:
 
 ```bash
-manga-translator sample_input.jpg
+uv run python3 gui.py
 ```
 
-### Output
+From the GUI you can open a local image or an image URL, inspect and edit detected text regions, 
+write and edit your text in the cleaned area and save the output as an image file.
 
-The tool produces:
+### Example (CLI)
+
+```bash
+uv run python3 main.py <image_path>
+```
+
+### Output (CLI)
+
+The CLI produces:
 
 1. **Console output** with detected text for each region:
-   ```
-   === Detected Japanese Text (in reading order) ===
+  ```
+  === Detected Japanese Text (in reading order) ===
    
-   1. [horizontal]
-      Japanese: こんにちは
-      Hiragana: こんにちは
-      Romaji:   konnichiha
-      English:  Hello
-   ```
+  1. [horizontal]
+    Japanese: こんにちは
+    Hiragana: こんにちは
+    Romaji:   konnichiha
+    English:  Hello
+  ```
 
 2. **Output image** (`output.jpg`) with text areas cleaned and blended with the background
 
@@ -66,6 +73,7 @@ The tool produces:
 - **[ocr.py](ocr.py)** - Text detection and OCR extraction
 - **[text_processor.py](text_processor.py)** - Japanese text conversion and translation
 - **[image_cleaner.py](image_cleaner.py)** - Image manipulation and text area cleanup
+- **[gui.py](gui.py)** - GUI launcher (PySide6)
 
 ## Dependencies
 
@@ -75,6 +83,7 @@ The tool produces:
 - **numpy** - Numerical operations
 - **kanjiconv** - Kanji to hiragana/romaji conversion
 - **deep-translator** - English translation
+- **PySide6** - Qt GUI toolkit (required for the graphical interface)
 
 ## Technical Details
 
