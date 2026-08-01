@@ -4,8 +4,6 @@ A GUI-first tool for learning and assisting with manga translation. It cleans th
 
 All used ML models are cached and used strictly locally. No information leaves your device when using them.
 
-#### Read the [Usage](README.md#usage) section of this readme before complaining the automatic translation sucks.
-
 ## Features
 
 - **Text Detection**: Finds all text regions in manga images using EasyOCR
@@ -51,8 +49,6 @@ Run the graphical interface from the project root:
 ```bash
 uv run gui.py
 ```
-
-#### IMPORTANT: translation will show mostly garbage until you do the steps below
 
 ### Load in the image - either local file or from URL
 The first time you do this will take a while - models will be downloaded and loaded in memory.
@@ -110,24 +106,13 @@ The CLI produces:
 - **[image_cleaner.py](image_cleaner.py)** - Image manipulation and text area cleanup
 - **[gui.py](gui.py)** - GUI launcher (PySide6)
 
-## Dependencies
-
-- **pillow** - Image processing
-- **easyocr** - Text region detection
-- **manga-ocr** - Japanese text recognition (handles vertical text)
-- **numpy** - Numerical operations
-- **kanjiconv** - Kanji to hiragana/romaji conversion
-- **deep-translator** - English translation
-- **PySide6** - Qt GUI toolkit (required for the graphical interface)
-
 ## Technical Details
+
+Only local models.
 
 ### Text Detection
 
-Uses EasyOCR with Japanese language support and tuned sensitivity parameters:
-- `contrast_ths=0.05` - Detect lower contrast text
-- `text_threshold=0.5` - Lower confidence threshold
-- `low_text=0.3` - Enhanced sensitivity
+Uses EasyOCR with Japanese language support.
 
 ### Text Extraction
 
@@ -136,33 +121,26 @@ MangaOCR is used for actual character recognition because it:
 - Is specialized for manga with various fonts and styles
 - Supports vertical text without manual rotation
 
-### Background Color Sampling
+#### Why use two different OCRs?
 
-For each text region:
-1. Samples a 5px border inside the text box
-2. Weights dark pixels (< 50 brightness) at 0.2x to avoid sampling text
-3. Uses weighted average to get the representative background color
+Because one is good at region detection, the other at extracting text. EasyOCR breaks when text is vertical, MangaOCR is trained for this and generally better here.
 
-### Image Cleanup
+## Considered features
+- show text editing column only when a region is selected
+- center the image in preview
+- load dir of images and navigate through them with different side-bar
+- move mode
+- translate with context - doesn't seem to work with this model
 
-- Overlays semi-transparent color matching the background
-- Maintains 80% opacity for natural blending
-- Outputs as JPEG with 95% quality or PNG depending on input
+None of them are my priority, so if you want something then write to me and ask nicely - then I'll think about it.
 
 ## Use Cases
 
+- **Translation**: Best case scenario it's enough to just copy-paste from one box to another. Usually it's not that easy and human judgement is necessary.
 - **Learning kanji**: See hiragana and romaji alongside kanji to understand pronunciation
 - **Reading comprehension**: Get English translations for unfamiliar words while reading
-- **Text extraction**: Extract raw Japanese text from manga for studying
-- **Clean scans**: Remove text from manga panels for re-translation or studying art
-
-## Notes
-
-- First run will download OCR models (~1-2GB), which may take several minutes
-- Vertical text detection uses a 1.2x height-to-width ratio threshold
-- English translation uses Google Translate via deep-translator (intended for context, not professional translation)
-- Works best with manga that has clear, distinct text areas
-- Hiragana conversion helps readers who know spoken Japanese but struggle with kanji
+- **Text extraction**: Extract raw Japanese text from manga for studying (can use CLI)
+- **Clean scans**: Remove text from manga panels for re-translation (can use CLI)
 
 ## Fonts
 
