@@ -145,18 +145,10 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         toolbar = QtWidgets.QToolBar()
         self.addToolBar(toolbar)
 
+        # File actions
         open_action = QtGui.QAction("Open Image", self)
         open_action.triggered.connect(self.open_image)
         toolbar.addAction(open_action)
-
-        self.add_region_action = QtGui.QAction("Add Region", self)
-        self.add_region_action.setCheckable(True)
-        self.add_region_action.toggled.connect(self.toggle_add_region_mode)
-        toolbar.addAction(self.add_region_action)
-
-        select_action = QtGui.QAction("Selection Mode", self)
-        select_action.triggered.connect(self.enter_select_mode)
-        toolbar.addAction(select_action)
 
         save_action = QtGui.QAction("Save Image", self)
         save_action.triggered.connect(self.save_image)
@@ -166,8 +158,27 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         export_action.triggered.connect(self.export_text)
         toolbar.addAction(export_action)
 
-        self.mode_label = QtWidgets.QLabel("Mode: Select")
-        toolbar.addWidget(self.mode_label)
+        separator_widget = QtWidgets.QWidget()
+        separator_widget.setFixedSize(2, 24)
+        separator_widget.setStyleSheet("background-color: rgba(255,255,255,0.3); margin: 0 8px;")
+        toolbar.addWidget(separator_widget)
+
+        # Mode actions
+        self.add_region_action = QtGui.QAction("Add Region", self)
+        self.add_region_action.setCheckable(True)
+        self.add_region_action.toggled.connect(self.toggle_add_region_mode)
+        toolbar.addAction(self.add_region_action)
+
+        self.select_action = QtGui.QAction("Selection", self)
+        self.select_action.setCheckable(True)
+        self.select_action.triggered.connect(self.enter_select_mode)
+        toolbar.addAction(self.select_action)
+
+        action_group = QtGui.QActionGroup(self)
+        action_group.setExclusive(True)
+        action_group.addAction(self.add_region_action)
+        action_group.addAction(self.select_action)
+        self.select_action.setChecked(True)
 
         main_layout = QtWidgets.QHBoxLayout(central_widget)
 
@@ -315,7 +326,8 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.selected_index = None
         self.unsaved_changes = False
         self.mode = "select"
-        self.update_mode_label()
+        self.select_action.setChecked(True)
+        self.add_region_action.setChecked(False)
 
         self.set_status("Detecting text regions...")
         QtWidgets.QApplication.processEvents()
@@ -539,14 +551,12 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             return
         self.mode = "new_region"
         self.add_region_action.setChecked(True)
-        self.update_mode_label()
         self.set_status("Drag on the preview to draw a new text region.")
         self.preview_widget.set_mode(self.mode)
 
     def enter_select_mode(self):
         self.mode = "select"
-        self.add_region_action.setChecked(False)
-        self.update_mode_label()
+        self.select_action.setChecked(True)
         self.set_status("Selection mode enabled.")
         self.preview_widget.set_mode(self.mode)
 
@@ -556,12 +566,9 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             self.set_status("Drag on the preview to draw a new text region.")
         else:
             self.mode = "select"
+            self.select_action.setChecked(True)
             self.set_status("Selection mode enabled.")
-        self.update_mode_label()
         self.preview_widget.set_mode(self.mode)
-
-    def update_mode_label(self):
-        self.mode_label.setText(f"Mode: {self.mode.replace('_', ' ').title()}")
 
     def on_region_selected(self, row):
         if row < 0:
