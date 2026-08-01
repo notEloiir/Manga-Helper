@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 import shutil
 
 from dataclasses import dataclass
+import json
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from PySide6 import QtCore, QtGui, QtWidgets
 import os
@@ -37,9 +38,16 @@ class RegionData:
     user_text: str = ""
     orientation: str = "horizontal"
     confidence: float | None = None
-    angle: float = 0.0
     to_update: bool = False
     clean_region: bool = True
+    # Per-region text settings
+    font_family: str = ""
+    font_size: int = 24
+    text_angle: float = 0.0
+    text_center: bool = True
+    text_padding: int = -16
+    text_color: tuple = (0, 0, 0)
+    text_bg_color: tuple = (255, 255, 255)
 
 
 class MangaHelperGUI(QtWidgets.QMainWindow):
@@ -66,6 +74,11 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.text_padding = -16
         self.text_color = (0, 0, 0)  # Black
         self.text_bg_color = (255, 255, 255)  # White
+
+        # Global persistent defaults (last used settings)
+        self.defaults_path = "config.json"
+        self.global_defaults = {}
+        self.load_defaults()
 
         self._ignore_user_text = False
         self._ignore_clean_checkbox = False
@@ -139,13 +152,55 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
 
     def resolve_font_path(self, font_name):
         """Resolve a font name to its full file path."""
+        if not font_name:
+            return None
         if font_name in self.available_fonts:
             return self.available_fonts[font_name]
-        # Try as-is in case it's already a full path
+        # If a direct file path was given, accept it
+        p = Path(font_name)
+        if p.exists():
+            return str(p)
+        return None
+
+    def load_defaults(self):
+        defaults = {
+            "font_family": self.font_family,
+            "font_size": self.font_size,
+            "text_center": self.text_center,
+            "text_padding": self.text_padding,
+            "text_color": list(self.text_color),
+            "text_bg_color": list(self.text_bg_color),
+            "text_angle": 0,
+        }
         try:
-            return ImageFont.truetype(font_name)
+            if self.defaults_path.exists():
+                data = json.loads(self.defaults_path.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    defaults.update(data)
         except Exception:
-            return None
+            pass
+        # Ensure font exists
+        if defaults.get("font_family") not in self.available_fonts:
+            if len(self.available_fonts) > 0:
+                defaults["font_family"] = sorted(self.available_fonts.keys())[0]
+        # Apply
+        self.global_defaults = defaults
+        self.font_family = self.global_defaults.get("font_family", self.font_family)
+        self.font_size = int(self.global_defaults.get("font_size", self.font_size))
+        self.text_center = bool(self.global_defaults.get("text_center", self.text_center))
+        self.text_padding = int(self.global_defaults.get("text_padding", self.text_padding))
+        self.text_color = tuple(self.global_defaults.get("text_color", list(self.text_color)))
+        self.text_bg_color = tuple(self.global_defaults.get("text_bg_color", list(self.text_bg_color)))
+
+    def save_defaults(self):
+        try:
+            data = dict(self.global_defaults)
+            # ensure serializable
+            data["text_color"] = list(data.get("text_color", self.text_color))
+            data["text_bg_color"] = list(data.get("text_bg_color", self.text_bg_color))
+            self.defaults_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            pass
 
     def setup_ui(self):
         central_widget = QtWidgets.QWidget()
@@ -490,9 +545,25 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
                 confidence=region[2] if len(region) > 2 else None,
                 to_update=False,
                 clean_region=True,
+                font_family=self.global_defaults.get("font_family", self.font_family),
+                font_size=int(self.global_defaults.get("font_size", self.font_size)),
+                text_center=bool(self.global_defaults.get("text_center", self.text_center)),
+                text_padding=int(self.global_defaults.get("text_padding", self.text_padding)),
+                text_color=tuple(self.global_defaults.get("text_color", list(self.text_color))),
+                text_bg_color=tuple(self.global_defaults.get("text_bg_color", list(self.text_bg_color))),
             )
-
             if not replace_all:
+                # Preserve existing per-region text settings when partially updating
+                try:
+                    old = self.region_data[index]
+                    data.font_family = getattr(old, "font_family", data.font_family)
+                    data.font_size = getattr(old, "font_size", data.font_size)
+                    data.text_center = getattr(old, "text_center", data.text_center)
+                    data.text_padding = getattr(old, "text_padding", data.text_padding)
+                    data.text_color = getattr(old, "text_color", data.text_color)
+                    data.text_bg_color = getattr(old, "text_bg_color", data.text_bg_color)
+                except Exception:
+                    pass
                 self.region_data[index] = data
             else:
                 self.region_data.append(data)
@@ -546,6 +617,14 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             return
 
         region = self.region_data[self.selected_index]
+        # If region has no replacement text, ensure it uses the global defaults
+        if not region.user_text.strip():
+            region.font_family = self.global_defaults.get("font_family", region.font_family)
+            region.font_size = int(self.global_defaults.get("font_size", region.font_size))
+            region.text_center = bool(self.global_defaults.get("text_center", region.text_center))
+            region.text_padding = int(self.global_defaults.get("text_padding", region.text_padding))
+            region.text_color = tuple(self.global_defaults.get("text_color", list(region.text_color)))
+            region.text_bg_color = tuple(self.global_defaults.get("text_bg_color", list(region.text_bg_color)))
         lines = [
             "Japanese:",
             region.ocr_text,
@@ -562,14 +641,31 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.user_text_edit.setText(region.user_text)
         self._ignore_user_text = False
 
+        # Populate font and layout controls for this region
+        self._ignore_font_combo = True
+        try:
+            self.font_combo.setCurrentText(region.font_family or self.font_family)
+        except Exception:
+            pass
+        self.font_size_spin.setValue(int(getattr(region, "font_size", self.font_size)))
+        self.center_check.setChecked(bool(getattr(region, "text_center", self.text_center)))
+        self.padding_spin.setValue(int(getattr(region, "text_padding", self.text_padding)))
+        self._ignore_font_combo = False
+
+        # Update color buttons to reflect region settings
+        self.text_color = tuple(getattr(region, "text_color", self.text_color))
+        self.update_text_color_button()
+        self.text_bg_color = tuple(getattr(region, "text_bg_color", self.text_bg_color))
+        self.update_text_bg_color_button()
+
         self._ignore_clean_checkbox = True
         self.clean_checkbox.setChecked(region.clean_region)
         self._ignore_clean_checkbox = False
         self.clean_checkbox.setEnabled(True)
 
         self._ignore_angle_slider = True
-        self.angle_slider.setValue(int(region.angle))
-        self.angle_label.setText(f"{int(region.angle)}°")
+        self.angle_slider.setValue(int(region.text_angle))
+        self.angle_label.setText(f"{int(region.text_angle)}°")
         self._ignore_angle_slider = False
         self.angle_slider.setEnabled(True)
 
@@ -673,17 +769,38 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
 
     def on_font_settings_changed(self):
+        if self._ignore_font_combo:
+            return
         self.font_family = self.font_combo.currentText()
         self.font_size = self.font_size_spin.value()
         self.text_center = self.center_check.isChecked()
         self.text_padding = self.padding_spin.value()
+
+        # Apply to selected region (per-region settings)
+        if self.selected_index is not None and 0 <= self.selected_index < len(self.region_data):
+            r = self.region_data[self.selected_index]
+            r.font_family = self.font_family
+            r.font_size = self.font_size
+            r.text_center = self.text_center
+            r.text_padding = self.text_padding
+            self.unsaved_changes = True
+
+        # Update global defaults and persist
+        self.global_defaults.update({
+            "font_family": self.font_family,
+            "font_size": self.font_size,
+            "text_center": self.text_center,
+            "text_padding": self.text_padding,
+        })
+        self.save_defaults()
+
         self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
 
     def on_angle_changed(self, value):
         self.angle_label.setText(f"{value}°")
         if self._ignore_angle_slider or self.selected_index is None:
             return
-        self.region_data[self.selected_index].angle = float(value)
+        self.region_data[self.selected_index].text_angle = float(value)
         self.unsaved_changes = True
         self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
 
@@ -694,7 +811,15 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             "Select Text Color"
         )
         if color.isValid():
-            self.text_color = (color.red(), color.green(), color.blue())
+            new_color = (color.red(), color.green(), color.blue())
+            self.text_color = new_color
+            # update selected region
+            if self.selected_index is not None and 0 <= self.selected_index < len(self.region_data):
+                self.region_data[self.selected_index].text_color = new_color
+                self.unsaved_changes = True
+            # persist
+            self.global_defaults["text_color"] = list(new_color)
+            self.save_defaults()
             self.update_text_color_button()
             self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
 
@@ -705,7 +830,13 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             "Select Text Background Color"
         )
         if color.isValid():
-            self.text_bg_color = (color.red(), color.green(), color.blue())
+            new_color = (color.red(), color.green(), color.blue())
+            self.text_bg_color = new_color
+            if self.selected_index is not None and 0 <= self.selected_index < len(self.region_data):
+                self.region_data[self.selected_index].text_bg_color = new_color
+                self.unsaved_changes = True
+            self.global_defaults["text_bg_color"] = list(new_color)
+            self.save_defaults()
             self.update_text_bg_color_button()
             self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
 
@@ -722,10 +853,16 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         )
 
     def create_font(self):
+        # Backwards-compatible: create font using current global font settings
+        return self.create_font_for(self.font_family, self.font_size)
+
+    def create_font_for(self, font_family=None, font_size=None):
         try:
-            font_path = self.resolve_font_path(self.font_family)
+            family = font_family or self.font_family
+            size = font_size or self.font_size
+            font_path = self.resolve_font_path(family)
             if font_path:
-                return ImageFont.truetype(font_path, max(8, self.font_size))
+                return ImageFont.truetype(font_path, max(8, int(size)))
         except Exception:
             pass
         return ImageFont.load_default()
@@ -829,7 +966,6 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
 
     def render_user_text_overlay(self, image, text_bg_dilation=2):
         draw = ImageDraw.Draw(image)
-        font = self.create_font()
         for region in self.region_data:
             text = region.user_text.strip()
             if not text:
@@ -837,18 +973,22 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
 
             x0, y0 = region.bbox[0]
             x1, y1 = region.bbox[2]
-            padding = self.text_padding
+            padding = region.text_padding if hasattr(region, "text_padding") else self.text_padding
             box = (x0 + padding, y0 + padding, x1 - padding, y1 - padding)
+
+            # Per-region font
+            font = self.create_font_for(getattr(region, "font_family", None), getattr(region, "font_size", None))
 
             text_bbox = draw.textbbox((0, 0), text, font=font)
             text_width = text_bbox[2] - text_bbox[0]
             text_height = text_bbox[3] - text_bbox[1]
             text_image = Image.new("RGBA", (text_width + 4, text_height + 4), (0, 0, 0, 0))
             temp_draw = ImageDraw.Draw(text_image)
-            text_color_with_alpha = self.text_color + (255,)
+            tc = tuple(getattr(region, "text_color", self.text_color))
+            text_color_with_alpha = tc + (255,)
             temp_draw.text((2, 2), text, fill=text_color_with_alpha, font=font)
 
-            angle = float(region.angle)
+            angle = float(region.text_angle)
             if angle != 0.0:
                 rotated_text = text_image.rotate(angle, resample=Image.BICUBIC, expand=True)
             else:
@@ -857,7 +997,8 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             rotated_mask = rotated_text.split()[3]
             rotated_width, rotated_height = rotated_text.size
 
-            if self.text_center:
+            center_flag = getattr(region, "text_center", self.text_center)
+            if center_flag:
                 px = box[0] + max(0, (box[2] - box[0] - rotated_width) // 2)
                 py = box[1] + max(0, (box[3] - box[1] - rotated_height) // 2)
             else:
@@ -867,7 +1008,8 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             # Draw background behind rotated text using dilated alpha mask.
             dilation_filter = ImageFilter.MaxFilter(1 + 2 * text_bg_dilation)
             dilated_mask = rotated_mask.filter(dilation_filter)
-            bg_color_with_alpha = self.text_bg_color + (255,)
+            bg = tuple(getattr(region, "text_bg_color", self.text_bg_color))
+            bg_color_with_alpha = bg + (255,)
             background_overlay = Image.new("RGBA", rotated_text.size, bg_color_with_alpha)
             image.paste(background_overlay, (px, py), dilated_mask)
             image.paste(rotated_text, (px, py), rotated_text)
@@ -884,17 +1026,24 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
 
     def add_new_region(self, bbox):
         """Add a new text region with the given bbox."""
+        defaults = self.global_defaults or {}
         self.region_data.append(RegionData(
-                bbox=bbox,
-                ocr_text="",
-                hiragana="",
-                romaji="",
-                translation="",
-                user_text="",
-                orientation="horizontal",
-                confidence=None,
-                to_update=True,
-                clean_region=True,
+            bbox=bbox,
+            ocr_text="",
+            hiragana="",
+            romaji="",
+            translation="",
+            user_text="",
+            orientation="horizontal",
+            confidence=None,
+            to_update=True,
+            clean_region=True,
+            font_family=defaults.get("font_family", self.font_family),
+            font_size=int(defaults.get("font_size", self.font_size)),
+            text_center=bool(defaults.get("text_center", self.text_center)),
+            text_padding=int(defaults.get("text_padding", self.text_padding)),
+            text_color=tuple(defaults.get("text_color", list(self.text_color))),
+            text_bg_color=tuple(defaults.get("text_bg_color", list(self.text_bg_color))),
             ))
         self.unsaved_changes = True
         self.selected_index = len(self.region_data) - 1
