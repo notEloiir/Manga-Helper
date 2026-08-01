@@ -7,6 +7,7 @@ from functools import partial
 from dataclasses import dataclass
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from PySide6 import QtCore, QtGui, QtWidgets
+import os
 
 from src.image_cleaner import clean_image
 from src.ocr import (
@@ -54,7 +55,9 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.canvas_scale = 1.0
         self.current_draw_rect = None
 
-        self.font_family = "DejaVuSans.ttf"
+        # Get available fonts and set defaults
+        self.available_fonts = self.find_available_fonts()
+        self.font_family = self.get_default_font()
         self.font_size = 24
         self.text_center = True
         self.text_padding = -16
@@ -62,8 +65,78 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self._ignore_user_text = False
         self._ignore_clean_checkbox = False
         self._ignore_angle_slider = False
+        self._ignore_font_combo = False
 
         self.setup_ui()
+
+    @staticmethod
+    def is_manga_font(font_name):
+        """Check if a font is suitable for manga/comic text."""
+        manga_font_keywords = [
+            "cc wild", "comic", "manga", "anime", "smackattack", "action man",
+            "badaboom", "komika jam", "f-rotten", "schlop", "wezer", "ames",
+        ]
+        return any(keyword in font_name.lower() for keyword in manga_font_keywords)
+
+    @staticmethod
+    def find_available_fonts():
+        """Find all available fonts from system paths and ./fonts/ directory."""
+        fonts = {}
+        
+        # Search system font directories (Linux/macOS)
+        system_font_dirs = [
+            "/usr/share/fonts/",
+            "/usr/local/share/fonts/",
+            os.path.expanduser("~/.local/share/fonts/"),
+            os.path.expanduser("~/Library/Fonts/"),
+        ]
+        
+        # Search system fonts with manga filter
+        for font_dir in system_font_dirs:
+            font_path = Path(font_dir)
+            if font_path.exists():
+                for font_file in font_path.rglob("*.ttf"):
+                    font_name = font_file.stem
+                    # Only include manga-style fonts from system paths
+                    if MangaHelperGUI.is_manga_font(font_name) and font_name not in fonts:
+                        fonts[font_name] = str(font_file)
+        
+        # Also check local ./fonts/ directory (no filtering)
+        local_fonts_dir = Path("./fonts/")
+        if local_fonts_dir.exists():
+            for font_file in local_fonts_dir.glob("*.ttf"):
+                font_name = font_file.stem
+                # Add all local fonts without filtering
+                if font_name not in fonts:  # Don't override system fonts
+                    fonts[font_name] = str(font_file)
+
+        # Default
+        fonts["DejaVuSans"] = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+        
+        return fonts
+
+    @staticmethod
+    def get_default_font():
+        """Get the default font, preferring CC Wild Words Roman."""
+        fonts = MangaHelperGUI.find_available_fonts()
+        if "CC Wild Words Roman" in fonts:
+            return "CC Wild Words Roman"
+        elif len(fonts):
+            # Return the first available font (alphabetically)
+            return sorted(fonts.keys())[0]
+        else:
+            # Fallback to system default
+            return "DejaVuSans.ttf"
+
+    def resolve_font_path(self, font_name):
+        """Resolve a font name to its full file path."""
+        if font_name in self.available_fonts:
+            return self.available_fonts[font_name]
+        # Try as-is in case it's already a full path
+        try:
+            return ImageFont.truetype(font_name)
+        except Exception:
+            return None
 
     def setup_ui(self):
         central_widget = QtWidgets.QWidget()
@@ -130,8 +203,11 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         settings_group = QtWidgets.QGroupBox("Text Settings")
         settings_layout = QtWidgets.QFormLayout(settings_group)
 
-        self.font_entry = QtWidgets.QLineEdit(self.font_family)
-        settings_layout.addRow("Font name:", self.font_entry)
+        self.font_combo = QtWidgets.QComboBox()
+        self.font_combo.addItems(sorted(self.available_fonts.keys()))
+        self.font_combo.setCurrentText(self.font_family)
+        self.font_combo.currentTextChanged.connect(self.on_font_settings_changed)
+        settings_layout.addRow("Font:", self.font_combo)
 
         self.font_size_spin = QtWidgets.QSpinBox()
         self.font_size_spin.setRange(8, 128)
@@ -512,7 +588,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
 
     def on_font_settings_changed(self):
-        self.font_family = self.font_entry.text()
+        self.font_family = self.font_combo.currentText()
         self.font_size = self.font_size_spin.value()
         self.text_center = self.center_check.isChecked()
         self.text_padding = self.padding_spin.value()
@@ -528,9 +604,12 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
 
     def create_font(self):
         try:
-            return ImageFont.truetype(self.font_family, max(8, self.font_size))
+            font_path = self.resolve_font_path(self.font_family)
+            if font_path:
+                return ImageFont.truetype(font_path, max(8, self.font_size))
         except Exception:
-            return ImageFont.load_default()
+            pass
+        return ImageFont.load_default()
 
     def save_image(self):
         if self.original_image is None:

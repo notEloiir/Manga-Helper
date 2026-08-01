@@ -126,6 +126,14 @@ For each text region:
 - Works best with manga that has clear, distinct text areas
 - Hiragana conversion helps readers who know spoken Japanese but struggle with kanji
 
+## Fonts
+
+The GUI includes built-in support for fonts from your system and from the `./fonts/` directory. Fonts suitable for manga/comic text styling are automatically discovered from system paths. Any fonts you add to the `./fonts/` directory will be available in the font selector without filtering.
+
+### Included Font Licenses
+
+The default font - CC Wild Words Roman, included in the `./fonts/` directory - is licensed under the **SIL Open Font License (OFL)**, which permits free personal and commercial use. See `fonts/OFL.txt` for full license details.
+
 ## License
 
 MIT
