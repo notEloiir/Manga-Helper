@@ -91,26 +91,16 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.setStatusBar(self.status_bar)
         self.set_status("Open an image to begin.")
 
-        right_panel = QtWidgets.QWidget()
-        right_layout = QtWidgets.QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(4, 4, 4, 4)
+        middle_panel = QtWidgets.QWidget()
+        middle_layout = QtWidgets.QVBoxLayout(middle_panel)
+        middle_layout.setContentsMargins(4, 4, 4, 4)
 
-        right_layout.addWidget(QtWidgets.QLabel("Detected Text Areas"))
-        self.region_list = QtWidgets.QListWidget()
-        self.region_list.currentRowChanged.connect(self.on_region_selected)
-        right_layout.addWidget(self.region_list)
-
-        details_group = QtWidgets.QGroupBox("Region Details")
-        details_layout = QtWidgets.QVBoxLayout(details_group)
-        self.detail_text = QtWidgets.QTextEdit(readOnly=True)
-        details_layout.addWidget(self.detail_text)
-
-        details_layout.addWidget(QtWidgets.QLabel("Replacement Text:"))
+        text_edit_group = QtWidgets.QGroupBox("Replace Text")
+        text_edit_layout = QtWidgets.QVBoxLayout(text_edit_group)
         self.user_text_edit = QtWidgets.QTextEdit(readOnly=False)
         self.user_text_edit.textChanged.connect(lambda: self.on_user_text_changed(self.user_text_edit.toPlainText()))
-        details_layout.addWidget(self.user_text_edit)
-
-        right_layout.addWidget(details_group)
+        text_edit_layout.addWidget(self.user_text_edit)
+        middle_layout.addWidget(text_edit_group)
 
         settings_group = QtWidgets.QGroupBox("Text Settings")
         settings_layout = QtWidgets.QFormLayout(settings_group)
@@ -135,10 +125,27 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.padding_spin.valueChanged.connect(self.on_font_settings_changed)
         settings_layout.addRow("Padding:", self.padding_spin)
 
-        right_layout.addWidget(settings_group)
+        middle_layout.addWidget(settings_group)
+        middle_layout.addStretch(1)
+
+        right_panel = QtWidgets.QWidget()
+        right_layout = QtWidgets.QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(4, 4, 4, 4)
+
+        right_layout.addWidget(QtWidgets.QLabel("Detected Text Areas"))
+        self.region_list = QtWidgets.QListWidget()
+        self.region_list.currentRowChanged.connect(self.on_region_selected)
+        right_layout.addWidget(self.region_list)
+
+        details_group = QtWidgets.QGroupBox("Region Details")
+        details_layout = QtWidgets.QVBoxLayout(details_group)
+        self.detail_text = QtWidgets.QTextEdit(readOnly=True)
+        details_layout.addWidget(self.detail_text)
+        right_layout.addWidget(details_group)
         right_layout.addStretch(1)
 
         main_layout.addWidget(left_panel, stretch=3)
+        main_layout.addWidget(middle_panel, stretch=0.5)
         main_layout.addWidget(right_panel, stretch=1)
 
     def set_status(self, message):
