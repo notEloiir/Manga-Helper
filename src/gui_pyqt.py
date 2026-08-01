@@ -175,15 +175,15 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         toolbar.addWidget(separator_widget)
 
         # Mode actions
-        self.add_region_action = QtGui.QAction("Add Region", self)
-        self.add_region_action.setCheckable(True)
-        self.add_region_action.toggled.connect(self.toggle_add_region_mode)
-        toolbar.addAction(self.add_region_action)
-
-        self.select_action = QtGui.QAction("Selection", self)
+        self.select_action = QtGui.QAction("Mode: Selection", self)
         self.select_action.setCheckable(True)
         self.select_action.triggered.connect(self.enter_select_mode)
         toolbar.addAction(self.select_action)
+
+        self.add_region_action = QtGui.QAction("Mode: Add Region", self)
+        self.add_region_action.setCheckable(True)
+        self.add_region_action.toggled.connect(self.toggle_add_region_mode)
+        toolbar.addAction(self.add_region_action)
 
         action_group = QtGui.QActionGroup(self)
         action_group.setExclusive(True)
@@ -208,6 +208,12 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         middle_panel = QtWidgets.QWidget()
         middle_layout = QtWidgets.QVBoxLayout(middle_panel)
         middle_layout.setContentsMargins(4, 4, 4, 4)
+
+        middle_label = QtWidgets.QLabel("Text Editing")
+        middle_label_font = middle_label.font()
+        middle_label_font.setBold(True)
+        middle_label.setFont(middle_label_font)
+        middle_layout.addWidget(middle_label)
 
         text_edit_group = QtWidgets.QGroupBox("Replace Text")
         text_edit_layout = QtWidgets.QVBoxLayout(text_edit_group)
@@ -271,7 +277,13 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         right_layout = QtWidgets.QVBoxLayout(right_panel)
         right_layout.setContentsMargins(4, 4, 4, 4)
 
-        right_layout.addWidget(QtWidgets.QLabel("Detected Text Areas"))
+        right_label = QtWidgets.QLabel("Region Controls")
+        right_label_font = right_label.font()
+        right_label_font.setBold(True)
+        right_label.setFont(right_label_font)
+        right_layout.addWidget(right_label)
+
+        right_layout.addWidget(QtWidgets.QLabel("Detected Regions"))
         self.region_list = QtWidgets.QListWidget()
         self.region_list.currentRowChanged.connect(self.on_region_selected)
         right_layout.addWidget(self.region_list)

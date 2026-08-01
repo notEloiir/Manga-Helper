@@ -1,6 +1,10 @@
 # Manga Helper
 
-A GUI-first tool for learning and assisting with manga translation. It extracts Japanese text from manga images and provides multiple representations to help readers who understand spoken Japanese but need help with kanji.
+A GUI-first tool for learning and assisting with manga translation. It cleans the opened image, allows for text editing, extracts Japanese text from manga images and provides multiple representations to help readers who understand spoken Japanese but need help with kanji.
+
+All used ML models are cached and used strictly locally. No information leaves your device when using them.
+
+#### Read the [Usage](README.md#usage) section of this readme before complaining the automatic translation sucks.
 
 ## Features
 
@@ -17,6 +21,15 @@ A GUI-first tool for learning and assisting with manga translation. It extracts 
   - Using semi-transparent overlays (80% opacity) for natural blending
 - **Manga Reading Order**: Sorts detected text regions in proper manga reading order (top-to-bottom, right-to-left)
 
+## Requirements
+
+- Python 3.10+
+- recommended uv packager manager
+- ~700MiB disk space for OCR models (downloaded on first run)
+- optional GPU acceleration (uses CPU in not available)
+
+If you don't know how to install Python or uv, watch a YT tutorial.
+
 ## Installation
 
 Using `uv` package manager:
@@ -31,26 +44,48 @@ Or with standard pip:
 pip install -e .
 ```
 
-## Usage
-
-GUI (recommended)
+## Usage - GUI (recommended)
 
 Run the graphical interface from the project root:
 
 ```bash
-uv run python3 gui.py
+uv run gui.py
 ```
 
-From the GUI you can open a local image or an image URL, inspect and edit detected text regions, 
-write and edit your text in the cleaned area and save the output as an image file.
+#### IMPORTANT: translation will show mostly garbage until you do the steps below
 
-### Example (CLI)
+### Load in the image - either local file or from URL
+The first time you do this will take a while - models will be downloaded and loaded in memory.
+
+### Now you see all the detected text regions in the `Detected Regions` list on the right.
+You can select a text area from the list, or by clicking on the preview.
+
+### Correct the detected text regions if you see anything wrong.
+- Resize them by dragging the edge
+- Create any regions the automatic detection missed by selecting `Mode: Add region` on the top menu (Leave it by selecting `Mode: Selection`). In this mode you can add a new region by clickling and dragging your mouse to select a rectangle - the region you want to select.
+- Delete redundant text regions by selecting a region to delete and pressing the `X` button below the list.
+
+### Reorder the `Detected Regions` list
+Despite best efforts the automatic sorting will make mistakes. Reorder regions by selecting a region and move it up or down the list using the arrow buttons below the list.
+
+### You're all set up - let the fun begin
+Select the first region. You might've already noticed that `Region Details` on the right shows some interesting information - different representations of the text and a translation. You can copy-paste the translation if it looks good, treat it as a suggestion or ignore it.
+
+> If you know some spoken Japanese but not the Kanji you will still get value out of reading the Hiragana or Romaji. You can also copy a Kanji you don't know and learn what it means in context.
+
+Look at the `Text Editing` sidebar. With a selected region, you can write your text in the `Text Replacement` box, and choose font, size etc. from the options below. Steps to add more fonts is described in [Fonts](README.md#fonts) section of this readme.
+
+Repeat for the rest of the regions.
+
+### Save the final image
+Press on the `Save Image` button in top menu, and select where do you want to save it.
+
+## Usage - CLI
 
 ```bash
-uv run python3 main.py <image_path>
+uv run main.py <image_path>
 ```
 
-### Output (CLI)
 
 The CLI produces:
 
@@ -113,12 +148,6 @@ For each text region:
 - Overlays semi-transparent color matching the background
 - Maintains 80% opacity for natural blending
 - Outputs as JPEG with 95% quality or PNG depending on input
-
-## Requirements
-
-- Python 3.10+
-- ~2GB disk space for OCR models (downloaded on first run)
-- GPU support optional (uses CPU by default)
 
 ## Use Cases
 
