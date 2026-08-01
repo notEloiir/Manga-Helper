@@ -159,6 +159,27 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.region_list.currentRowChanged.connect(self.on_region_selected)
         right_layout.addWidget(self.region_list)
 
+        region_buttons = QtWidgets.QWidget()
+        region_buttons_layout = QtWidgets.QHBoxLayout(region_buttons)
+        region_buttons_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.move_up_button = QtWidgets.QPushButton("↑")
+        self.move_up_button.setToolTip("Move selected region up")
+        self.move_up_button.clicked.connect(self.move_region_up)
+        region_buttons_layout.addWidget(self.move_up_button)
+
+        self.move_down_button = QtWidgets.QPushButton("↓")
+        self.move_down_button.setToolTip("Move selected region down")
+        self.move_down_button.clicked.connect(self.move_region_down)
+        region_buttons_layout.addWidget(self.move_down_button)
+
+        self.delete_region_button = QtWidgets.QPushButton("X")
+        self.delete_region_button.setToolTip("Delete selected region")
+        self.delete_region_button.clicked.connect(self.delete_selected_region)
+        region_buttons_layout.addWidget(self.delete_region_button)
+
+        right_layout.addWidget(region_buttons)
+
         details_group = QtWidgets.QGroupBox("Region Details")
         details_layout = QtWidgets.QVBoxLayout(details_group)
         self.detail_text = QtWidgets.QTextEdit(readOnly=True)
@@ -211,7 +232,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.set_status("Loaded image. Click a region in the list or on the preview.")
 
     # if text_regions is None use self.region_data instead
-    def update_region_data(self, text_regions=None):
+    def update_region_data(self, text_regions=None, replace_all=True, sort=True):
         if not text_regions and len(self.region_data) == 0:
             QtWidgets.QMessageBox.information(self, "No text found", "No text regions were detected in this image.")
             self.region_data = []
@@ -219,21 +240,22 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             self.refresh_ui()
             return
         
-        if text_regions is None:
+        if not sort:
+            sorted_regions = text_regions if text_regions is not None else [ (data.bbox, data.ocr_text, data.confidence) for data in self.region_data ]
+        elif text_regions is None:
             sorted_regions = sort_text_regions([ (data.bbox, data.ocr_text, data.confidence) for data in self.region_data ])
         else:
             sorted_regions = sort_text_regions(text_regions)
         
         # Decide whether to replace all (new image) or partial update
-        replace_all = True
         update_index = -1
-        for index, data in enumerate(self.region_data):
-            if data.to_update:
-                replace_all = False
-                update_index = index
+        if not replace_all:
+            for index, data in enumerate(self.region_data):
+                if data.to_update:
+                    update_index = index
 
         # Reorder region_data to match sorted_regions indexing
-        if not replace_all:
+        if not replace_all and sort:
             # If partial update, we can try to match them by bbox
             new_region_data = []
             for index, sorted_region in enumerate(sorted_regions):
@@ -245,7 +267,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
                         if data.to_update:
                             update_index = index
                         break
-                if not matched:
+                if not matched and update_index != -1:
                     # The only unmatched region should be the one we want to update
                     new_region_data.append(self.region_data[update_index])
                     update_index = index
@@ -286,7 +308,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             else:
                 self.region_data.append(data)
 
-        if self.region_data:
+        if self.region_data and (replace_all or update_index != -1):
             self.selected_index = 0 if replace_all else update_index
         self.refresh_ui()
 
@@ -310,7 +332,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         selected_index = self.selected_index
         self.region_list.clear()
         for index, region in enumerate(self.region_data, start=1):
-            label = f"{index}. [{region.orientation}] {region.ocr_text[:20]}"
+            label = f"{index}. [{region.orientation[0]}] {region.ocr_text[:20]}"
             self.region_list.addItem(label)
 
         self.selected_index = selected_index
@@ -326,6 +348,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             self.clean_checkbox.setChecked(False)
             self._ignore_clean_checkbox = False
             self.clean_checkbox.setEnabled(False)
+            self.update_region_control_buttons()
             return
 
         region = self.region_data[self.selected_index]
@@ -349,6 +372,47 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.clean_checkbox.setChecked(region.clean_region)
         self._ignore_clean_checkbox = False
         self.clean_checkbox.setEnabled(True)
+        self.update_region_control_buttons()
+
+    def update_region_control_buttons(self):
+        has_selection = self.selected_index is not None and 0 <= self.selected_index < len(self.region_data)
+        self.move_up_button.setEnabled(has_selection and self.selected_index > 0)
+        self.move_down_button.setEnabled(has_selection and self.selected_index < len(self.region_data) - 1)
+        self.delete_region_button.setEnabled(has_selection)
+
+    def move_region_up(self):
+        if self.selected_index is None or self.selected_index <= 0:
+            return
+        self.region_data[self.selected_index - 1], self.region_data[self.selected_index] = (
+            self.region_data[self.selected_index],
+            self.region_data[self.selected_index - 1],
+        )
+        self.selected_index -= 1
+        self.unsaved_changes = True
+        self.update_region_data(replace_all=False, sort=False)
+        self.refresh_ui()
+
+    def move_region_down(self):
+        if self.selected_index is None or self.selected_index >= len(self.region_data) - 1:
+            return
+        self.region_data[self.selected_index + 1], self.region_data[self.selected_index] = (
+            self.region_data[self.selected_index],
+            self.region_data[self.selected_index + 1],
+        )
+        self.selected_index += 1
+        self.unsaved_changes = True
+        self.update_region_data(replace_all=False, sort=False)
+        self.refresh_ui()
+
+    def delete_selected_region(self):
+        if self.selected_index is None or self.selected_index < 0 or self.selected_index >= len(self.region_data):
+            return
+        del self.region_data[self.selected_index]
+        self.unsaved_changes = True
+        if self.selected_index >= len(self.region_data):
+            self.selected_index = len(self.region_data) - 1 if self.region_data else None
+        self.update_region_data(replace_all=False, sort=False)
+        self.refresh_ui()
 
     def on_clean_checkbox_changed(self, state):
         if self._ignore_clean_checkbox or self.selected_index is None:
@@ -566,22 +630,21 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
 
     def add_new_region(self, bbox):
         """Add a new text region with the given bbox."""
-        # todo: fill values
-        self.region_data.append({
-            "bbox": bbox,
-            "ocr_text": "",
-            "hiragana": "",
-            "romaji": "",
-            "translation": "",
-            "user_text": "",
-            "orientation": "horizontal",
-            "confidence": None,
-            "to_update": True,
-            "clean_region": True,
-        })
+        self.region_data.append(RegionData(
+                bbox=bbox,
+                ocr_text="",
+                hiragana="",
+                romaji="",
+                translation="",
+                user_text="",
+                orientation="horizontal",
+                confidence=None,
+                to_update=True,
+                clean_region=True,
+            ))
         self.unsaved_changes = True
         self.selected_index = len(self.region_data) - 1
-        self.update_region_data()
+        self.update_region_data(replace_all=False)
         self.refresh_ui()
 
     def update_region_bbox(self, index, bbox):
@@ -828,7 +891,7 @@ class PreviewWidget(QtWidgets.QLabel):
                 # Trigger update to this area values and all areas' translations
                 curr_region_data = self.parent_window.region_data[self.selected_index]
                 curr_region_data.to_update = True
-                self.parent_window.update_region_data()
+                self.parent_window.update_region_data(replace_all=False)
 
             self.dragging_edge = None
 
