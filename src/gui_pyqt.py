@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 from functools import partial
 
+from dataclasses import dataclass
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from PySide6 import QtCore, QtGui, QtWidgets
 
@@ -20,6 +21,20 @@ from src.text_processor import (
     convert_to_romaji,
     translate_with_context,
 )
+
+
+@dataclass
+class RegionData:
+    bbox: list
+    ocr_text: str = ""
+    hiragana: str = ""
+    romaji: str = ""
+    translation: str = ""
+    user_text: str = ""
+    orientation: str = "horizontal"
+    confidence: float | None = None
+    to_update: bool = False
+    clean_region: bool = True
 
 
 class MangaHelperGUI(QtWidgets.QMainWindow):
@@ -44,6 +59,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.text_padding = -16
 
         self._ignore_user_text = False
+        self._ignore_clean_checkbox = False
 
         self.setup_ui()
 
@@ -100,6 +116,12 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.user_text_edit = QtWidgets.QTextEdit(readOnly=False)
         self.user_text_edit.textChanged.connect(lambda: self.on_user_text_changed(self.user_text_edit.toPlainText()))
         text_edit_layout.addWidget(self.user_text_edit)
+
+        self.clean_checkbox = QtWidgets.QCheckBox("Clean region")
+        self.clean_checkbox.stateChanged.connect(self.on_clean_checkbox_changed)
+        self.clean_checkbox.setEnabled(False)
+        text_edit_layout.addWidget(self.clean_checkbox)
+
         middle_layout.addWidget(text_edit_group)
 
         settings_group = QtWidgets.QGroupBox("Text Settings")
@@ -198,7 +220,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             return
         
         if text_regions is None:
-            sorted_regions = sort_text_regions([ (data["bbox"], data["ocr_text"], data.get("confidence")) for data in self.region_data ])
+            sorted_regions = sort_text_regions([ (data.bbox, data.ocr_text, data.confidence) for data in self.region_data ])
         else:
             sorted_regions = sort_text_regions(text_regions)
         
@@ -206,7 +228,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         replace_all = True
         update_index = -1
         for index, data in enumerate(self.region_data):
-            if data["to_update"]:
+            if data.to_update:
                 replace_all = False
                 update_index = index
 
@@ -217,10 +239,10 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             for index, sorted_region in enumerate(sorted_regions):
                 matched = False
                 for data in self.region_data:
-                    if data["bbox"] == sorted_region[0]:
+                    if data.bbox == sorted_region[0]:
                         new_region_data.append(data)
                         matched = True
-                        if data["to_update"]:
+                        if data.to_update:
                             update_index = index
                         break
                 if not matched:
@@ -241,22 +263,23 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             if not replace_all and update_index != index:
                 # Just update translation, other fields couldn't change
                 data = self.region_data[index]
-                data["translation"] = translation
+                data.translation = translation
                 continue
 
             bbox = self.normalize_bbox(region[0])
             orientation = "vertical" if is_vertical_text(bbox) else "horizontal"
-            data = {
-                "bbox": bbox,
-                "ocr_text": text,
-                "hiragana": convert_to_hiragana(text),
-                "romaji": convert_to_romaji(text),
-                "translation": translation,
-                "user_text": "",
-                "orientation": orientation,
-                "confidence": region[2] if len(region) > 2 else None,
-                "to_update": False,
-            }
+            data = RegionData(
+                bbox=bbox,
+                ocr_text=text,
+                hiragana=convert_to_hiragana(text),
+                romaji=convert_to_romaji(text),
+                translation=translation,
+                user_text="",
+                orientation=orientation,
+                confidence=region[2] if len(region) > 2 else None,
+                to_update=False,
+                clean_region=True,
+            )
 
             if not replace_all:
                 self.region_data[index] = data
@@ -287,7 +310,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         selected_index = self.selected_index
         self.region_list.clear()
         for index, region in enumerate(self.region_data, start=1):
-            label = f"{index}. [{region['orientation']}] {region['ocr_text'][:20]}"
+            label = f"{index}. [{region.orientation}] {region.ocr_text[:20]}"
             self.region_list.addItem(label)
 
         self.selected_index = selected_index
@@ -299,24 +322,40 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             self.detail_text.setPlainText("No text region selected.")
             self.user_text_edit.setText("")
             self.user_text_edit.setEnabled(False)
+            self._ignore_clean_checkbox = True
+            self.clean_checkbox.setChecked(False)
+            self._ignore_clean_checkbox = False
+            self.clean_checkbox.setEnabled(False)
             return
 
         region = self.region_data[self.selected_index]
         lines = [
             "Japanese:",
-            region['ocr_text'],
+            region.ocr_text,
             "Hiragana:",
-            region['hiragana'],
+            region.hiragana,
             "Romaji:",
-            region['romaji'],
+            region.romaji,
             "English:",
-            region['translation'],
+            region.translation,
         ]
         self.detail_text.setPlainText("\n".join(lines))
         self.user_text_edit.setEnabled(True)
         self._ignore_user_text = True
-        self.user_text_edit.setText(region['user_text'])
+        self.user_text_edit.setText(region.user_text)
         self._ignore_user_text = False
+
+        self._ignore_clean_checkbox = True
+        self.clean_checkbox.setChecked(region.clean_region)
+        self._ignore_clean_checkbox = False
+        self.clean_checkbox.setEnabled(True)
+
+    def on_clean_checkbox_changed(self, state):
+        if self._ignore_clean_checkbox or self.selected_index is None:
+            return
+        self.region_data[self.selected_index].clean_region = bool(state)
+        self.unsaved_changes = True
+        self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
 
     def enter_add_region_mode(self):
         if self.original_image is None:
@@ -364,12 +403,12 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         if self._ignore_user_text or self.selected_index is None:
             return
         region = self.region_data[self.selected_index]
-        # bbox = region['bbox']
-        # x0, y0 = region['bbox'][0]
-        # x1, y1 = region['bbox'][2]
+        # bbox = region.bbox
+        # x0, y0 = region.bbox[0]
+        # x1, y1 = region.bbox[2]
         # width = abs(x1 - x0)
         # # Textwrap to bbox width
-        region['user_text'] = text
+        region.user_text = text
         self.unsaved_changes = True
         self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
 
@@ -405,7 +444,11 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             return
 
         # Apply the modifications to original image now
-        image_to_save = clean_image(self.original_image, [region['bbox'] for region in self.region_data], opacity=0.9)
+        image_to_save = clean_image(
+            self.original_image,
+            [region.bbox for region in self.region_data if region.clean_region],
+            opacity=0.9,
+        )
         image_to_save = self.render_user_text_overlay(image_to_save)
 
         output_path = Path(path)
@@ -444,13 +487,13 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             handle.write(f"Image: {self.current_image_path.name}\n")
             handle.write(f"Regions: {len(self.region_data)}\n\n")
             for index, region in enumerate(self.region_data, start=1):
-                handle.write(f"{index}. [{region['orientation']}]\n")
-                handle.write(f"Japanese: {region['ocr_text']}\n")
-                handle.write(f"Hiragana: {region['hiragana']}\n")
-                handle.write(f"Romaji: {region['romaji']}\n")
-                handle.write(f"English: {region['translation']}\n")
-                if region['user_text'].strip():
-                    handle.write(f"Replacement: {region['user_text']}\n")
+                handle.write(f"{index}. [{region.orientation}]\n")
+                handle.write(f"Japanese: {region.ocr_text}\n")
+                handle.write(f"Hiragana: {region.hiragana}\n")
+                handle.write(f"Romaji: {region.romaji}\n")
+                handle.write(f"English: {region.translation}\n")
+                if region.user_text.strip():
+                    handle.write(f"Replacement: {region.user_text}\n")
                 handle.write("\n")
 
         self.set_status(f"Text exported to {export_path.name}")
@@ -480,12 +523,12 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         draw = ImageDraw.Draw(image)
         font = self.create_font()
         for region in self.region_data:
-            text = region['user_text'].strip()
+            text = region.user_text.strip()
             if not text:
                 continue
 
-            x0, y0 = region['bbox'][0]
-            x1, y1 = region['bbox'][2]
+            x0, y0 = region.bbox[0]
+            x1, y1 = region.bbox[2]
             padding = self.text_padding
             box = (x0 + padding, y0 + padding, x1 - padding, y1 - padding)
             text_size = draw.textbbox((0, 0), text, font=font)
@@ -534,6 +577,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             "orientation": "horizontal",
             "confidence": None,
             "to_update": True,
+            "clean_region": True,
         })
         self.unsaved_changes = True
         self.selected_index = len(self.region_data) - 1
@@ -543,7 +587,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
     def update_region_bbox(self, index, bbox):
         """Update the bbox of a region."""
         if 0 <= index < len(self.region_data):
-            self.region_data[index]['bbox'] = bbox
+            self.region_data[index].bbox = bbox
             self.unsaved_changes = True
             self.refresh_ui()
 
@@ -577,10 +621,14 @@ class PreviewWidget(QtWidgets.QLabel):
             self.clear()
             return
 
-        preview = clean_image(image, [region["bbox"] for region in region_data], opacity=0.9)
+        preview = clean_image(
+            image,
+            [region.bbox for region in region_data if region.clean_region],
+            opacity=0.9,
+        )
         preview = parent_window.render_user_text_overlay(preview)
         if selected_index is not None and 0 <= selected_index < len(region_data):
-            preview = self.render_selection_overlay(preview, region_data[selected_index]["bbox"])
+            preview = self.render_selection_overlay(preview, region_data[selected_index].bbox)
 
         self.current_image = preview
         self.selected_index = selected_index
@@ -617,7 +665,7 @@ class PreviewWidget(QtWidgets.QLabel):
             if not resizing and img_coords:
                 # Check if clicking on any region to select it
                 for index, region in enumerate(self.parent_window.region_data):
-                    bbox = region['bbox']
+                    bbox = region.bbox
                     x0, y0 = bbox[0]
                     x1, y1 = bbox[2]
                     if x0 <= img_coords[0] <= x1 and y0 <= img_coords[1] <= y1:
@@ -631,7 +679,7 @@ class PreviewWidget(QtWidgets.QLabel):
         if self.selected_index is None or self.selected_index >= len(self.parent_window.region_data):
             return None
         
-        bbox = self.parent_window.region_data[self.selected_index]['bbox']
+        bbox = self.parent_window.region_data[self.selected_index].bbox
         x, y = img_coords
         x0, y0 = bbox[0]  # top-left
         x1, y1 = bbox[2]  # bottom-right
@@ -710,7 +758,7 @@ class PreviewWidget(QtWidgets.QLabel):
         index = self.selected_index
         
         region = self.parent_window.region_data[index]
-        bbox = region['bbox']
+        bbox = region.bbox
         x0, y0 = bbox[0]
         x1, y1 = bbox[2]
         new_x, new_y = new_coords
@@ -757,7 +805,7 @@ class PreviewWidget(QtWidgets.QLabel):
                 return
             bbox = self.parent_window.region_bbox_from_points(img_start, img_end)
             for existing_region in self.parent_window.region_data:
-                existing_bbox = existing_region['bbox']
+                existing_bbox = existing_region.bbox
                 if bbox == existing_bbox:
                     QtWidgets.QMessageBox.information(self, "Duplicate Region", "This region already exists.")
                     self.start_point = None
@@ -779,7 +827,7 @@ class PreviewWidget(QtWidgets.QLabel):
 
                 # Trigger update to this area values and all areas' translations
                 curr_region_data = self.parent_window.region_data[self.selected_index]
-                curr_region_data["to_update"] = True
+                curr_region_data.to_update = True
                 self.parent_window.update_region_data()
 
             self.dragging_edge = None
