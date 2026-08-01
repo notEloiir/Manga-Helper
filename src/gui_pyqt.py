@@ -800,6 +800,8 @@ class PreviewWidget(QtWidgets.QLabel):
         self.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
         self.setStyleSheet("background-color: #222222;")
         self.setAlignment(QtCore.Qt.AlignTop | QtCore.Qt.AlignLeft)
+        self.setMouseTracking(True)
+        self.setCursor(QtCore.Qt.ArrowCursor)
         self.current_image = None
         self.selected_index = None
         self.mode = "select"
@@ -808,6 +810,7 @@ class PreviewWidget(QtWidgets.QLabel):
         self.parent_window = parent
         self.dragging_edge = None
         self.hovered_edge = None
+        self.drag_preview_bbox = None
 
     def set_mode(self, mode):
         self.mode = mode
@@ -817,8 +820,10 @@ class PreviewWidget(QtWidgets.QLabel):
 
     def update_preview(self, image, region_data, selected_index, parent_window):
         self.parent_window = parent_window
+        self.drag_preview_bbox = None
         if image is None:
             self.clear()
+            self.current_image = None
             return
 
         preview = clean_image(
@@ -827,8 +832,6 @@ class PreviewWidget(QtWidgets.QLabel):
             opacity=0.9,
         )
         preview = parent_window.render_user_text_overlay(preview)
-        if selected_index is not None and 0 <= selected_index < len(region_data):
-            preview = self.render_selection_overlay(preview, region_data[selected_index].bbox)
 
         self.current_image = preview
         self.selected_index = selected_index
@@ -922,6 +925,27 @@ class PreviewWidget(QtWidgets.QLabel):
         }
         return cursor_map.get(edge, QtCore.Qt.ArrowCursor)
 
+    def update_cursor_for_current_position(self, event):
+        if self.current_image is None or self.mode != "select":
+            return
+        img_coords = self.widget_to_image_coords(event.position())
+        if img_coords:
+            edge = self.detect_edge(img_coords)
+            self.hovered_edge = edge
+            if edge:
+                self.setCursor(self.get_cursor_for_edge(edge))
+            else:
+                self.setCursor(QtCore.Qt.ArrowCursor)
+        else:
+            self.hovered_edge = None
+            self.setCursor(QtCore.Qt.ArrowCursor)
+
+    def leaveEvent(self, event):
+        super().leaveEvent(event)
+        if self.mode == "select" and not self.dragging_edge:
+            self.hovered_edge = None
+            self.setCursor(QtCore.Qt.ArrowCursor)
+
     def mouseMoveEvent(self, event):
         if self.current_image is None:
             return
@@ -936,35 +960,25 @@ class PreviewWidget(QtWidgets.QLabel):
                 img_coords = self.widget_to_image_coords(event.position())
                 if img_coords:
                     self.resize_bbox_by_edge(img_coords)
+                    self.setCursor(self.get_cursor_for_edge(self.dragging_edge))
             else:
-                # Update cursor based on hovered edge
-                img_coords = self.widget_to_image_coords(event.position())
-                if img_coords:
-                    edge = self.detect_edge(img_coords)
-                    self.hovered_edge = edge
-                    if edge:
-                        self.setCursor(self.get_cursor_for_edge(edge))
-                    else:
-                        self.setCursor(QtCore.Qt.ArrowCursor)
-                else:
-                    self.setCursor(QtCore.Qt.ArrowCursor)
+                self.update_cursor_for_current_position(event)
 
     def resize_bbox_by_edge(self, new_coords):
         """Resize the bbox by dragging an edge."""
         if self.selected_index is None or not self.parent_window:
-            return
+            return None
 
         # snapshot index
         index = self.selected_index
-        
         region = self.parent_window.region_data[index]
         bbox = region.bbox
         x0, y0 = bbox[0]
         x1, y1 = bbox[2]
         new_x, new_y = new_coords
-        
+
         edge = self.dragging_edge
-        
+
         if edge == "left":
             x0 = new_x
         elif edge == "right":
@@ -981,15 +995,23 @@ class PreviewWidget(QtWidgets.QLabel):
             x0, y1 = new_x, new_y
         elif edge == "bottom-right":
             x1, y1 = new_x, new_y
-        
-        # Ensure minimum size and valid coordinates
+
         min_size = 20
         if abs(x1 - x0) >= min_size and abs(y1 - y0) >= min_size:
-            new_bbox = [(min(x0, x1), min(y0, y1)), (max(x0, x1), min(y0, y1)), 
-                       (max(x0, x1), max(y0, y1)), (min(x0, x1), max(y0, y1))]
-            self.parent_window.update_region_bbox(index, new_bbox)
+            new_bbox = [
+                (min(x0, x1), min(y0, y1)),
+                (max(x0, x1), min(y0, y1)),
+                (max(x0, x1), max(y0, y1)),
+                (min(x0, x1), max(y0, y1)),
+            ]
+            self.drag_preview_bbox = new_bbox
+            self.update()
+            self.selected_index = index
+            return new_bbox
 
-        self.selected_index = index
+        self.drag_preview_bbox = None
+        self.update()
+        return None
 
     def mouseReleaseEvent(self, event):
         if self.current_image is None:
@@ -1022,15 +1044,21 @@ class PreviewWidget(QtWidgets.QLabel):
             if self.dragging_edge:
                 img_coords = self.widget_to_image_coords(event.position())
                 if not img_coords:
+                    self.dragging_edge = None
+                    self.drag_preview_bbox = None
+                    self.update()
                     return
-                self.resize_bbox_by_edge(img_coords)
-
-                # Trigger update to this area values and all areas' translations
-                curr_region_data = self.parent_window.region_data[self.selected_index]
-                curr_region_data.to_update = True
-                self.parent_window.update_region_data(replace_all=False)
+                new_bbox = self.resize_bbox_by_edge(img_coords)
+                if new_bbox is not None:
+                    self.parent_window.update_region_bbox(self.selected_index, new_bbox)
+                    curr_region_data = self.parent_window.region_data[self.selected_index]
+                    curr_region_data.to_update = True
+                    self.parent_window.update_region_data(replace_all=False)
 
             self.dragging_edge = None
+            self.drag_preview_bbox = None
+            self.update_cursor_for_current_position(event)
+            self.update()
 
     def widget_to_image_coords(self, point):
         if self.current_image is None:
@@ -1041,9 +1069,6 @@ class PreviewWidget(QtWidgets.QLabel):
             return None
 
         scale = min(label_size.width() / image_width, label_size.height() / image_height)
-        # px = (label_size.width() - image_width * scale) / 2
-        # py = (label_size.height() - image_height * scale) / 2
-        # this works
         px = py = 0
         x = (point.x() - px) / scale
         y = (point.y() - py) / scale
@@ -1051,44 +1076,50 @@ class PreviewWidget(QtWidgets.QLabel):
             return None
         return (int(x), int(y))
 
-    def render_selection_overlay(self, image, bbox):
-        draw = ImageDraw.Draw(image)
+    def image_to_widget_coords(self, point):
+        if self.current_image is None:
+            return None
+        label_size = self.size()
+        image_width, image_height = self.current_image.size
+        if image_width == 0 or image_height == 0:
+            return None
+        scale = min(label_size.width() / image_width, label_size.height() / image_height)
+        px = py = 0
+        x = point[0] * scale + px
+        y = point[1] * scale + py
+        return (x, y)
+
+    def draw_bbox(self, painter, bbox, color=(0, 255, 0), width=3, dash=False):
+        if self.current_image is None:
+            return
         x0, y0 = bbox[0]
         x1, y1 = bbox[2]
-        
-        # Draw main rectangle
-        draw.rectangle([x0, y0, x1, y1], outline=(0, 255, 0, 255), width=4)
-        
-        # Draw resize handles at corners and edges
-        handle_size = 2
-        handles = [
-            ((x0, y0), "top-left"),
-            ((x1, y0), "top-right"),
-            ((x1, y1), "bottom-right"),
-            ((x0, y1), "bottom-left"),
-            (((x0 + x1) // 2, y0), "top"),
-            (((x0 + x1) // 2, y1), "bottom"),
-            ((x0, (y0 + y1) // 2), "left"),
-            ((x1, (y0 + y1) // 2), "right"),
-        ]
-        
-        for (hx, hy), edge_name in handles:
-            # Draw handle rectangle
-            draw.rectangle(
-                [hx - handle_size, hy - handle_size, hx + handle_size, hy + handle_size],
-                fill=(0, 255, 0, 200),
-                outline=(0, 200, 0, 255),
-                width=1
-            )
-        
-        return image
+        top_left = self.image_to_widget_coords((x0, y0))
+        bottom_right = self.image_to_widget_coords((x1, y1))
+        if top_left is None or bottom_right is None:
+            return
+
+        rect = QtCore.QRectF(top_left[0], top_left[1], bottom_right[0] - top_left[0], bottom_right[1] - top_left[1])
+        pen = QtGui.QPen(QtGui.QColor(*color), width)
+        if dash:
+            pen.setStyle(QtCore.Qt.DashLine)
+        painter.setPen(pen)
+        painter.drawRect(rect)
 
     def paintEvent(self, event):
         super().paintEvent(event)
+        painter = QtGui.QPainter(self)
         if self.preview_rect is not None:
-            painter = QtGui.QPainter(self)
             painter.setPen(QtGui.QPen(QtGui.QColor("cyan"), 2, QtCore.Qt.DashLine))
             painter.drawRect(self.preview_rect)
+
+        if self.mode == "select" and self.current_image is not None:
+            if self.drag_preview_bbox is not None:
+                self.draw_bbox(painter, self.drag_preview_bbox, color=(255, 255, 0), width=3)
+            elif self.selected_index is not None and self.parent_window is not None:
+                if 0 <= self.selected_index < len(self.parent_window.region_data):
+                    selected_bbox = self.parent_window.region_data[self.selected_index].bbox
+                    self.draw_bbox(painter, selected_bbox, color=(0, 255, 0), width=3)
 
 
 def main():
