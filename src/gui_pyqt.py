@@ -274,9 +274,14 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
 
             self.region_data = new_region_data
         
-        # todo
-        # Doesn't need to be done each time but for now it's faster since image is not loaded per instance but function call ...
-        extracted_texts = extract_text(self.original_image, sorted_regions)
+        # Doesn't need to be extracted each time
+        if replace_all:
+            extracted_texts = extract_text(self.original_image, sorted_regions)
+        else:
+            extracted_texts = [
+                data.ocr_text if not data.to_update else extract_text_from_region(self.original_image, data.bbox)
+                for data in self.region_data
+            ]
         translations = translate_with_context(extracted_texts)
         
         if replace_all:
