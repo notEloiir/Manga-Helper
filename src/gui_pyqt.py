@@ -76,9 +76,17 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.text_bg_color = (255, 255, 255)  # White
 
         # Global persistent defaults (last used settings)
-        self.defaults_path = "config.json"
+        self.defaults_path = Path("config.json")
         self.global_defaults = {}
+        self.window_width = 1200
+        self.window_height = 800
+        self.fullscreen = False
         self.load_defaults()
+
+        if not self.fullscreen:
+            self.resize(self.window_width, self.window_height)
+        else:
+            self.showFullScreen()
 
         self._ignore_user_text = False
         self._ignore_clean_checkbox = False
@@ -171,6 +179,9 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             "text_color": list(self.text_color),
             "text_bg_color": list(self.text_bg_color),
             "text_angle": 0,
+            "window_width": self.window_width,
+            "window_height": self.window_height,
+            "fullscreen": self.fullscreen,
         }
         try:
             if self.defaults_path.exists():
@@ -183,6 +194,15 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         if defaults.get("font_family") not in self.available_fonts:
             if len(self.available_fonts) > 0:
                 defaults["font_family"] = sorted(self.available_fonts.keys())[0]
+
+        try:
+            self.window_width = max(200, int(defaults.get("window_width", self.window_width)))
+            self.window_height = max(200, int(defaults.get("window_height", self.window_height)))
+        except Exception:
+            self.window_width = 1200
+            self.window_height = 800
+
+        self.fullscreen = bool(defaults.get("fullscreen", self.fullscreen))
         # Apply
         self.global_defaults = defaults
         self.font_family = self.global_defaults.get("font_family", self.font_family)
@@ -195,12 +215,35 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
     def save_defaults(self):
         try:
             data = dict(self.global_defaults)
+            data["window_width"] = self.window_width
+            data["window_height"] = self.window_height
+            data["fullscreen"] = self.fullscreen
             # ensure serializable
             data["text_color"] = list(data.get("text_color", self.text_color))
             data["text_bg_color"] = list(data.get("text_bg_color", self.text_bg_color))
             self.defaults_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
         except Exception:
             pass
+
+    def update_window_state(self):
+        self.fullscreen = self.isFullScreen()
+        if not self.fullscreen:
+            self.window_width = self.width()
+            self.window_height = self.height()
+
+    def resizeEvent(self, event):
+        if not self.isFullScreen():
+            self.window_width = self.width()
+            self.window_height = self.height()
+        return super().resizeEvent(event)
+
+    def changeEvent(self, event):
+        if event.type() == QtCore.QEvent.WindowStateChange:
+            self.fullscreen = bool(self.windowState() & QtCore.Qt.WindowFullScreen)
+            if not self.fullscreen:
+                self.window_width = self.width()
+                self.window_height = self.height()
+        return super().changeEvent(event)
 
     def setup_ui(self):
         central_widget = QtWidgets.QWidget()
@@ -957,6 +1000,8 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
 
     def closeEvent(self, event):
         if self.maybe_prompt_save():
+            self.update_window_state()
+            self.save_defaults()
             # Clean up tmp directory
             if self.tmp_dir.exists():
                 shutil.rmtree(self.tmp_dir)
