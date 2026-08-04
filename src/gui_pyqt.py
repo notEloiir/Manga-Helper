@@ -24,7 +24,7 @@ from src.ocr import (
 from src.text_processor import (
     convert_to_hiragana,
     convert_to_romaji,
-    translate_with_context,
+    translate,
 )
 
 
@@ -275,12 +275,13 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         toolbar.addWidget(separator_widget)
 
         # Mode actions
-        self.select_action = QtGui.QAction("Mode: Selection", self)
+        toolbar.addWidget(QtWidgets.QLabel("Mode:"))
+        self.select_action = QtGui.QAction("Selection", self)
         self.select_action.setCheckable(True)
         self.select_action.triggered.connect(self.enter_select_mode)
         toolbar.addAction(self.select_action)
 
-        self.add_region_action = QtGui.QAction("Mode: Add Region", self)
+        self.add_region_action = QtGui.QAction("Add Region", self)
         self.add_region_action.setCheckable(True)
         self.add_region_action.toggled.connect(self.toggle_add_region_mode)
         toolbar.addAction(self.add_region_action)
@@ -559,20 +560,21 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         # Doesn't need to be extracted each time
         if replace_all:
             extracted_texts = extract_text(self.original_image, sorted_regions)
+            translations = translate(extracted_texts)
         else:
             extracted_texts = [
                 data.ocr_text if not data.to_update else extract_text_from_region(self.original_image, data.bbox)
                 for data in self.region_data
             ]
-        translations = translate_with_context(extracted_texts)
-        
+            translations = [
+                data.translation if not data.to_update else translate([extracted_texts[i]])[0]
+                for i, data in enumerate(self.region_data)
+            ]
+
         if replace_all:
             self.region_data = []
         for index, (region, text, translation) in enumerate(zip(sorted_regions, extracted_texts, translations)):
             if not replace_all and update_index != index:
-                # Just update translation, other fields couldn't change
-                data = self.region_data[index]
-                data.translation = translation
                 continue
 
             bbox = self.normalize_bbox(region[0])

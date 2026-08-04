@@ -8,7 +8,7 @@ from PIL import Image
 
 # Import from modules
 from src.ocr import detect_text_regions, sort_text_regions, extract_text, is_vertical_text
-from src.text_processor import convert_to_hiragana, convert_to_romaji, translate_with_context
+from src.text_processor import convert_to_hiragana, convert_to_romaji, translate
 from src.image_cleaner import clean_image
 
 
@@ -55,7 +55,7 @@ def main():
         extracted_texts = extract_text(image, sorted_regions)
         
         # Get translations with full context
-        translations = translate_with_context(extracted_texts)
+        translations = translate(extracted_texts)
         
         print("=== Detected Japanese Text (in reading order) ===\n")
         for i, (text, region, translation) in enumerate(zip(extracted_texts, sorted_regions, translations), 1):

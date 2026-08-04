@@ -76,11 +76,8 @@ def convert_to_romaji(text):
         return text
 
 
-def translate_with_context(texts):
-    """Translate Japanese text to English using full context.
-    
-    Combines all text snippets for better context-aware translation.
-    Returns list of translations in same order as input.
+def translate(texts):
+    """Translate Japanese text to English
     """
     if not texts or all(not t for t in texts):
         return [""] * len(texts)
