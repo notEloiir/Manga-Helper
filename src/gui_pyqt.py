@@ -45,6 +45,7 @@ class RegionData:
     font_size: int = 24
     text_angle: float = 0.0
     text_center: bool = True
+    text_align_center: bool = True
     text_padding: int = -16
     text_color: tuple = (0, 0, 0)
     text_bg_color: tuple = (255, 255, 255)
@@ -71,6 +72,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.font_family = self.get_default_font()
         self.font_size = 24
         self.text_center = True
+        self.text_align_center = True
         self.text_padding = -16
         self.text_color = (0, 0, 0)  # Black
         self.text_bg_color = (255, 255, 255)  # White
@@ -174,11 +176,9 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         defaults = {
             "font_family": self.font_family,
             "font_size": self.font_size,
-            "text_center": self.text_center,
             "text_padding": self.text_padding,
             "text_color": list(self.text_color),
             "text_bg_color": list(self.text_bg_color),
-            "text_angle": 0,
             "window_width": self.window_width,
             "window_height": self.window_height,
             "fullscreen": self.fullscreen,
@@ -207,7 +207,8 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.global_defaults = defaults
         self.font_family = self.global_defaults.get("font_family", self.font_family)
         self.font_size = int(self.global_defaults.get("font_size", self.font_size))
-        self.text_center = bool(self.global_defaults.get("text_center", self.text_center))
+        self.text_center = True
+        self.text_align_center = True
         self.text_padding = int(self.global_defaults.get("text_padding", self.text_padding))
         self.text_color = tuple(self.global_defaults.get("text_color", list(self.text_color)))
         self.text_bg_color = tuple(self.global_defaults.get("text_bg_color", list(self.text_bg_color)))
@@ -349,6 +350,11 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.center_check.setChecked(self.text_center)
         self.center_check.stateChanged.connect(self.on_font_settings_changed)
         settings_layout.addRow(self.center_check)
+
+        self.align_center_check = QtWidgets.QCheckBox("Align center")
+        self.align_center_check.setChecked(self.text_align_center)
+        self.align_center_check.stateChanged.connect(self.on_font_settings_changed)
+        settings_layout.addRow(self.align_center_check)
 
         self.padding_spin = QtWidgets.QSpinBox()
         self.padding_spin.setRange(-64, 64)
@@ -593,6 +599,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
                 font_family=self.global_defaults.get("font_family", self.font_family),
                 font_size=int(self.global_defaults.get("font_size", self.font_size)),
                 text_center=bool(self.global_defaults.get("text_center", self.text_center)),
+                text_align_center=bool(self.global_defaults.get("text_align_center", self.text_align_center)),
                 text_padding=int(self.global_defaults.get("text_padding", self.text_padding)),
                 text_color=tuple(self.global_defaults.get("text_color", list(self.text_color))),
                 text_bg_color=tuple(self.global_defaults.get("text_bg_color", list(self.text_bg_color))),
@@ -604,6 +611,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
                     data.font_family = getattr(old, "font_family", data.font_family)
                     data.font_size = getattr(old, "font_size", data.font_size)
                     data.text_center = getattr(old, "text_center", data.text_center)
+                    data.text_align_center = getattr(old, "text_align_center", data.text_align_center)
                     data.text_padding = getattr(old, "text_padding", data.text_padding)
                     data.text_color = getattr(old, "text_color", data.text_color)
                     data.text_bg_color = getattr(old, "text_bg_color", data.text_bg_color)
@@ -667,6 +675,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             region.font_family = self.global_defaults.get("font_family", region.font_family)
             region.font_size = int(self.global_defaults.get("font_size", region.font_size))
             region.text_center = bool(self.global_defaults.get("text_center", region.text_center))
+            region.text_align_center = bool(self.global_defaults.get("text_align_center", region.text_align_center))
             region.text_padding = int(self.global_defaults.get("text_padding", region.text_padding))
             region.text_color = tuple(self.global_defaults.get("text_color", list(region.text_color)))
             region.text_bg_color = tuple(self.global_defaults.get("text_bg_color", list(region.text_bg_color)))
@@ -694,6 +703,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             pass
         self.font_size_spin.setValue(int(getattr(region, "font_size", self.font_size)))
         self.center_check.setChecked(bool(getattr(region, "text_center", self.text_center)))
+        self.align_center_check.setChecked(bool(getattr(region, "text_align_center", self.text_align_center)))
         self.padding_spin.setValue(int(getattr(region, "text_padding", self.text_padding)))
         self._ignore_font_combo = False
 
@@ -819,6 +829,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.font_family = self.font_combo.currentText()
         self.font_size = self.font_size_spin.value()
         self.text_center = self.center_check.isChecked()
+        self.text_align_center = self.align_center_check.isChecked()
         self.text_padding = self.padding_spin.value()
 
         # Apply to selected region (per-region settings)
@@ -827,6 +838,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             r.font_family = self.font_family
             r.font_size = self.font_size
             r.text_center = self.text_center
+            r.text_align_center = self.text_align_center
             r.text_padding = self.text_padding
             self.unsaved_changes = True
 
@@ -835,6 +847,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             "font_family": self.font_family,
             "font_size": self.font_size,
             "text_center": self.text_center,
+            "text_align_center": self.text_align_center,
             "text_padding": self.text_padding,
         })
         self.save_defaults()
@@ -1022,18 +1035,71 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             x1, y1 = region.bbox[2]
             padding = region.text_padding if hasattr(region, "text_padding") else self.text_padding
             box = (x0 + padding, y0 + padding, x1 - padding, y1 - padding)
+            indent = 5
+            indent_ratio = 1.1
 
             # Per-region font
             font = self.create_font_for(getattr(region, "font_family", None), getattr(region, "font_size", None))
 
-            text_bbox = draw.textbbox((0, 0), text, font=font)
-            text_width = text_bbox[2] - text_bbox[0]
-            text_height = text_bbox[3] - text_bbox[1]
-            text_image = Image.new("RGBA", (text_width + 4, text_height + 4), (0, 0, 0, 0))
-            temp_draw = ImageDraw.Draw(text_image)
-            tc = tuple(getattr(region, "text_color", self.text_color))
-            text_color_with_alpha = tc + (255,)
-            temp_draw.text((2, 2), text, fill=text_color_with_alpha, font=font)
+            # Check if horizontal center alignment is enabled
+            align_center = getattr(region, "text_align_center", self.text_align_center)
+            
+            # Split text into lines
+            lines = text.split('\n')
+            
+            if align_center and len(lines) > 1:
+                # Calculate the width of each line and find max width
+                # Also get standard line height from a reference line
+                line_bboxes = []
+                for line in lines:
+                    bbox = draw.textbbox((0, 0), line, font=font)
+                    line_bboxes.append(bbox)
+                
+                line_widths = [bbox[2] - bbox[0] for bbox in line_bboxes]
+                line_heights = [int((bbox[3] - bbox[1]) * indent_ratio + indent) for bbox in line_bboxes]
+                
+                # Get standard line height from a non-empty line, or use space as reference
+                standard_line_height = 0
+                for height in line_heights:
+                    if height > 0:
+                        standard_line_height = height
+                        break
+                
+                # Use standard line height for all lines (including empty ones)
+                adjusted_heights = [standard_line_height if h == 0 else h for h in line_heights]
+                
+                max_width = max(line_widths) if line_widths else 0
+                total_height = sum(adjusted_heights)
+                
+                # Add spacing between lines (1 pixel per line gap)
+                if len(lines) > 1:
+                    total_height += (len(lines) - 1) * 1
+                
+                # Create text image with max_width
+                text_image = Image.new("RGBA", (max_width + 4, total_height + 4), (0, 0, 0, 0))
+                temp_draw = ImageDraw.Draw(text_image)
+                tc = tuple(getattr(region, "text_color", self.text_color))
+                text_color_with_alpha = tc + (255,)
+                
+                # Draw each line centered within max_width
+                y_pos = 2
+                for line, adjusted_height in zip(lines, adjusted_heights):
+                    line_bbox = draw.textbbox((0, 0), line, font=font)
+                    line_width = line_bbox[2] - line_bbox[0]
+                    # Center this line within max_width
+                    x_pos = 2 + (max_width - line_width) // 2
+                    temp_draw.text((x_pos, y_pos), line, fill=text_color_with_alpha, font=font)
+                    y_pos += adjusted_height + 1
+            else:
+                # Single line or align_center disabled: use original behavior
+                text_bbox = draw.textbbox((0, 0), text, font=font)
+                text_width = text_bbox[2] - text_bbox[0]
+                text_height = int((text_bbox[3] - text_bbox[1]) * indent_ratio + indent)
+                text_image = Image.new("RGBA", (text_width + 4, text_height + 4), (0, 0, 0, 0))
+                temp_draw = ImageDraw.Draw(text_image)
+                tc = tuple(getattr(region, "text_color", self.text_color))
+                text_color_with_alpha = tc + (255,)
+                temp_draw.text((2, 2), text, fill=text_color_with_alpha, font=font)
 
             angle = float(region.text_angle)
             if angle != 0.0:
@@ -1087,7 +1153,8 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             clean_region=True,
             font_family=defaults.get("font_family", self.font_family),
             font_size=int(defaults.get("font_size", self.font_size)),
-            text_center=bool(defaults.get("text_center", self.text_center)),
+            text_center=True,
+            text_align_center=True,
             text_padding=int(defaults.get("text_padding", self.text_padding)),
             text_color=tuple(defaults.get("text_color", list(self.text_color))),
             text_bg_color=tuple(defaults.get("text_bg_color", list(self.text_bg_color))),
