@@ -61,9 +61,6 @@ You can select a text area from the list, or by clicking on the preview.
 - Create any regions the automatic detection missed by selecting `Mode: Add region` on the top menu (Leave it by selecting `Mode: Selection`). In this mode you can add a new region by clickling and dragging your mouse to select a rectangle - the region you want to select.
 - Delete redundant text regions by selecting a region to delete and pressing the `X` button below the list.
 
-### Reorder the `Detected Regions` list
-Despite best efforts the automatic sorting will make mistakes. Reorder regions by selecting a region and move it up or down the list using the arrow buttons below the list.
-
 ### You're all set up - let the fun begin
 Select the first region. You might've already noticed that `Region Details` on the right shows some interesting information - different representations of the text and a translation. You can copy-paste the translation if it looks good, treat it as a suggestion or ignore it.
 
@@ -75,6 +72,11 @@ Repeat for the rest of the regions.
 
 ### Save the final image
 Press on the `Save Image` button in top menu, and select where do you want to save it.
+
+### Need to pause?
+Use the `Save Regions` button (and type file name where to save them) to save regions data. You can close the app, and when you're ready to resume - open the image again, press `Load Regions` and select the file you saved them to.
+
+> Note: loading regions will replace current regions, potentially losing data. A prompt will appear asking if you're sure.
 
 ## Usage - CLI
 
