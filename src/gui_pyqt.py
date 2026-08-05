@@ -263,6 +263,12 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         toolbar = QtWidgets.QToolBar()
         self.addToolBar(toolbar)
 
+        def add_separator():
+            separator_widget = QtWidgets.QWidget()
+            separator_widget.setFixedSize(2, 24)
+            separator_widget.setStyleSheet("background-color: rgba(255,255,255,0.3); margin: 0 8px;")
+            toolbar.addWidget(separator_widget)
+
         # File actions
         open_action = QtGui.QAction("Open Image File", self)
         open_action.triggered.connect(self.open_image)
@@ -272,22 +278,21 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         open_action.triggered.connect(self.open_image_from_url)
         toolbar.addAction(open_action)
 
-        save_action = QtGui.QAction("Save Image", self)
+        save_action = QtGui.QAction("Export Image", self)
         save_action.triggered.connect(self.save_image)
         toolbar.addAction(save_action)
+
+        add_separator()
 
         save_regions_action = QtGui.QAction("Save Regions", self)
         save_regions_action.triggered.connect(self.save_regions)
         toolbar.addAction(save_regions_action)
 
-        load_regions_action = QtGui.QAction("Load (replace) Regions", self)
+        load_regions_action = QtGui.QAction("Load Regions", self)
         load_regions_action.triggered.connect(self.load_regions)
         toolbar.addAction(load_regions_action)
 
-        separator_widget = QtWidgets.QWidget()
-        separator_widget.setFixedSize(2, 24)
-        separator_widget.setStyleSheet("background-color: rgba(255,255,255,0.3); margin: 0 8px;")
-        toolbar.addWidget(separator_widget)
+        add_separator()
 
         # Mode actions
         toolbar.addWidget(QtWidgets.QLabel("Mode:"))
@@ -941,10 +946,10 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
 
     def save_image(self):
         if self.original_image is None:
-            QtWidgets.QMessageBox.information(self, "Save Image", "Open an image first before saving.")
+            QtWidgets.QMessageBox.information(self, "Export Image", "Open an image first before exporting.")
             return
 
-        dialog = QtWidgets.QFileDialog(self, "Save cleaned image")
+        dialog = QtWidgets.QFileDialog(self, "Export output image")
         dialog.setAcceptMode(QtWidgets.QFileDialog.AcceptSave)
         dialog.setNameFilters(["JPEG image (*.jpg *.jpeg)", "PNG image (*.png)", "All files (*)"])
         default_suffix = self.current_image_path.suffix.lower() if self.current_image_path else "png"
