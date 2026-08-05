@@ -6,6 +6,7 @@ from functools import partial
 from urllib.request import urlopen
 from urllib.parse import urlparse
 import shutil
+import re
 
 from dataclasses import dataclass
 import json
@@ -122,25 +123,34 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             os.path.expanduser("~/.local/share/fonts/"),
             os.path.expanduser("~/Library/Fonts/"),
         ]
+
+        pat = re.compile(r"\.([a-z0-9]+)$", re.IGNORECASE)  # captures extension
+        font_extentions = { "ttf", "otf", "woff", "woff2", "eot" }
         
         # Search system fonts with manga filter
         for font_dir in system_font_dirs:
             font_path = Path(font_dir)
             if font_path.exists():
-                for font_file in font_path.rglob("*.ttf"):
-                    font_name = font_file.stem
-                    # Only include manga-style fonts from system paths
-                    if MangaHelperGUI.is_manga_font(font_name) and font_name not in fonts:
-                        fonts[font_name] = str(font_file)
+                for font_file in font_path.rglob("*"):
+                    if font_file.is_file() and pat.search(font_file.name):
+                        ext = pat.search(font_file.name).group(1).lower()
+                        if ext in font_extentions:
+                            font_name = font_file.stem
+                            # Only include manga-style fonts from system paths
+                            if MangaHelperGUI.is_manga_font(font_name) and font_name not in fonts:
+                                fonts[font_name] = str(font_file)
         
         # Also check local ./fonts/ directory (no filtering)
         local_fonts_dir = Path("./fonts/")
         if local_fonts_dir.exists():
-            for font_file in local_fonts_dir.glob("*.ttf"):
-                font_name = font_file.stem
-                # Add all local fonts without filtering
-                if font_name not in fonts:  # Don't override system fonts
-                    fonts[font_name] = str(font_file)
+            for font_file in local_fonts_dir.glob("*"):
+                if font_file.is_file() and pat.search(font_file.name):
+                    ext = pat.search(font_file.name).group(1).lower()
+                    if ext in font_extentions:
+                        font_name = font_file.stem
+                        # Add all local fonts without filtering
+                        if font_name not in fonts:  # Don't override system fonts
+                            fonts[font_name] = str(font_file)
 
         # Default
         fonts["DejaVuSans"] = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"

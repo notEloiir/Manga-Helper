@@ -2,6 +2,10 @@
 .cache
 config.json
 
+fonts/*
+!"fonts/CC Wild Words Roman.ttf"
+!"fonts/OFL.txt"
+
 uv.lock
 __pycache__
 
