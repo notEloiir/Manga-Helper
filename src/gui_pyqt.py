@@ -1414,6 +1414,9 @@ class PreviewWidget(QtWidgets.QLabel):
             img_start = self.widget_to_image_coords(self.start_point)
             img_end = self.widget_to_image_coords(end_point)
             if img_start is None or img_end is None:
+                self.start_point = None
+                self.preview_rect = None
+                self.update()
                 return
             bbox = self.parent_window.region_bbox_from_points(img_start, img_end)
             for existing_region in self.parent_window.region_data:
@@ -1448,6 +1451,7 @@ class PreviewWidget(QtWidgets.QLabel):
             self.dragging_edge = None
             self.drag_preview_bbox = None
             self.update_cursor_for_current_position(event)
+            self.start_point = None
             self.update()
 
     def widget_to_image_coords(self, point):
