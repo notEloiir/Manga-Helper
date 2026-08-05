@@ -276,9 +276,13 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         save_action.triggered.connect(self.save_image)
         toolbar.addAction(save_action)
 
-        export_action = QtGui.QAction("Export Text", self)
-        export_action.triggered.connect(self.export_text)
-        toolbar.addAction(export_action)
+        save_regions_action = QtGui.QAction("Save Regions", self)
+        save_regions_action.triggered.connect(self.save_regions)
+        toolbar.addAction(save_regions_action)
+
+        load_regions_action = QtGui.QAction("Load (replace) Regions", self)
+        load_regions_action.triggered.connect(self.load_regions)
+        toolbar.addAction(load_regions_action)
 
         separator_widget = QtWidgets.QWidget()
         separator_widget.setFixedSize(2, 24)
@@ -975,15 +979,15 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.unsaved_changes = False
         self.set_status(f"Saved cleaned image and text export to {output_path.name}")
 
-    def export_text(self):
+    def save_regions(self):
         if self.current_image_path is None:
-            QtWidgets.QMessageBox.information(self, "Export Text", "Open an image first before exporting text.")
+            QtWidgets.QMessageBox.information(self, "Save Regions", "Open an image first before saving regions.")
             return
 
-        dialog = QtWidgets.QFileDialog(self, "Export detected text")
+        dialog = QtWidgets.QFileDialog(self, "Save all regions")
         dialog.setAcceptMode(QtWidgets.QFileDialog.AcceptSave)
-        dialog.setNameFilters(["Text file (*.txt);;All files (*)"])
-        dialog.setDefaultSuffix("txt")
+        dialog.setNameFilters(["JSON file (*.json);;All files (*)"])
+        dialog.setDefaultSuffix("json")
         if dialog.exec():
             path = dialog.selectedFiles()[0]
         else:
@@ -993,20 +997,99 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             return
         export_path = Path(path)
 
-        with export_path.open("w", encoding="utf-8") as handle:
-            handle.write(f"Image: {self.current_image_path.name}\n")
-            handle.write(f"Regions: {len(self.region_data)}\n\n")
-            for index, region in enumerate(self.region_data, start=1):
-                handle.write(f"{index}. [{region.orientation}]\n")
-                handle.write(f"Japanese: {region.ocr_text}\n")
-                handle.write(f"Hiragana: {region.hiragana}\n")
-                handle.write(f"Romaji: {region.romaji}\n")
-                handle.write(f"English: {region.translation}\n")
-                if region.user_text.strip():
-                    handle.write(f"Replacement: {region.user_text}\n")
-                handle.write("\n")
+        export_data = {
+            "image": self.current_image_path.name,
+            "region_count": len(self.region_data),
+            "regions": [
+                {
+                    "bbox": region.bbox,
+                    "ocr_text": region.ocr_text,
+                    "hiragana": region.hiragana,
+                    "romaji": region.romaji,
+                    "translation": region.translation,
+                    "user_text": region.user_text,
+                    "orientation": region.orientation,
+                    "confidence": region.confidence,
+                    "to_update": region.to_update,
+                    "clean_region": region.clean_region,
+                    "font_family": region.font_family,
+                    "font_size": region.font_size,
+                    "text_angle": region.text_angle,
+                    "text_center": region.text_center,
+                    "text_align_center": region.text_align_center,
+                    "text_padding": region.text_padding,
+                    "text_color": list(region.text_color) if isinstance(region.text_color, tuple) else region.text_color,
+                    "text_bg_color": list(region.text_bg_color) if isinstance(region.text_bg_color, tuple) else region.text_bg_color,
+                }
+                for region in self.region_data
+            ],
+        }
 
-        self.set_status(f"Text exported to {export_path.name}")
+        with export_path.open("w", encoding="utf-8") as handle:
+            json.dump(export_data, handle, ensure_ascii=False, indent=2)
+
+        self.set_status(f"Regions exported to {export_path.name}")
+
+    def load_regions(self):
+        if self.current_image_path is None:
+            QtWidgets.QMessageBox.information(self, "Load Regions", "Open an image first before loading regions.")
+            return
+        if not self.maybe_prompt_save():
+            return
+
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self,
+            "Load regions from JSON",
+            filter="JSON files (*.json);;All files (*)",
+        )
+        if not path:
+            return
+
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+        except Exception as exc:
+            QtWidgets.QMessageBox.critical(self, "Load Error", f"Failed to load regions:\n{exc}")
+            return
+
+        # if data.get("image") != self.current_image_path.name:
+        #     QtWidgets.QMessageBox.warning(
+        #         self,
+        #         "Image Mismatch",
+        #         f"The regions in {Path(path).name} do not match the currently loaded image.",
+        #     )
+        #     return
+
+        loaded_regions = []
+        for region in data.get("regions", []):
+            loaded_regions.append(
+                RegionData(
+                    bbox=region["bbox"],
+                    ocr_text=region["ocr_text"],
+                    hiragana=region["hiragana"],
+                    romaji=region["romaji"],
+                    translation=region["translation"],
+                    user_text=region.get("user_text", ""),
+                    orientation=region["orientation"],
+                    confidence=region.get("confidence"),
+                    to_update=region.get("to_update", False),
+                    clean_region=region.get("clean_region", True),
+                    font_family=region.get("font_family", self.font_family),
+                    font_size=int(region.get("font_size", self.font_size)),
+                    text_angle=float(region.get("text_angle", 0.0)),
+                    text_center=bool(region.get("text_center", self.text_center)),
+                    text_align_center=bool(region.get("text_align_center", self.text_align_center)),
+                    text_padding=int(region.get("text_padding", self.text_padding)),
+                    text_color=tuple(region.get("text_color", list(self.text_color))),
+                    text_bg_color=tuple(region.get("text_bg_color", list(self.text_bg_color))),
+                )
+            )
+
+        self.region_data = loaded_regions
+        self.selected_index = 0 if self.region_data else None
+        self.unsaved_changes = False
+        self.update_region_data(replace_all=False, sort=False)
+        self.refresh_ui()
 
     def maybe_prompt_save(self):
         if not self.unsaved_changes:
