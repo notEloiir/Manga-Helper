@@ -6,6 +6,7 @@ from functools import partial
 from urllib.request import urlopen
 from urllib.parse import urlparse
 import shutil
+import numpy as np
 import re
 
 from dataclasses import dataclass
@@ -1155,19 +1156,10 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
                 
                 line_widths = [bbox[2] - bbox[0] for bbox in line_bboxes]
                 line_heights = [int((bbox[3] - bbox[1]) * indent_ratio + indent) for bbox in line_bboxes]
-                
-                # Get standard line height from a non-empty line, or use space as reference
-                standard_line_height = 0
-                for height in line_heights:
-                    if height > 0:
-                        standard_line_height = height
-                        break
-                
-                # Use standard line height for all lines (including empty ones)
-                adjusted_heights = [standard_line_height if h == 0 else h for h in line_heights]
+                normal_height = int(np.quantile(line_heights, 0.75)) if line_heights else 0
                 
                 max_width = max(line_widths) if line_widths else 0
-                total_height = sum(adjusted_heights)
+                total_height = normal_height * len(lines)
                 
                 # Add spacing between lines (1 pixel per line gap)
                 if len(lines) > 1:
@@ -1181,13 +1173,13 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
                 
                 # Draw each line centered within max_width
                 y_pos = 2
-                for line, adjusted_height in zip(lines, adjusted_heights):
+                for line in lines:
                     line_bbox = draw.textbbox((0, 0), line, font=font)
                     line_width = line_bbox[2] - line_bbox[0]
                     # Center this line within max_width
                     x_pos = 2 + (max_width - line_width) // 2
                     temp_draw.text((x_pos, y_pos), line, fill=text_color_with_alpha, font=font)
-                    y_pos += adjusted_height + 1
+                    y_pos += normal_height + 1
             else:
                 # Single line or align_center disabled: use original behavior
                 text_bbox = draw.textbbox((0, 0), text, font=font)
