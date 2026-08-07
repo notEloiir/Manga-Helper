@@ -285,13 +285,13 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
 
         add_separator()
 
-        save_regions_action = QtGui.QAction("Save Regions", self)
-        save_regions_action.triggered.connect(self.save_regions)
-        toolbar.addAction(save_regions_action)
-
         load_regions_action = QtGui.QAction("Load Regions", self)
         load_regions_action.triggered.connect(self.load_regions)
         toolbar.addAction(load_regions_action)
+
+        save_regions_action = QtGui.QAction("Save Regions", self)
+        save_regions_action.triggered.connect(self.save_regions)
+        toolbar.addAction(save_regions_action)
 
         add_separator()
 
@@ -992,7 +992,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
 
         dialog = QtWidgets.QFileDialog(self, "Save all regions")
         dialog.setAcceptMode(QtWidgets.QFileDialog.AcceptSave)
-        dialog.setNameFilters(["JSON file (*.json);;All files (*)"])
+        dialog.setNameFilters(["JSON file (*.json)", "All files (*)"])
         dialog.setDefaultSuffix("json")
         if dialog.exec():
             path = dialog.selectedFiles()[0]
