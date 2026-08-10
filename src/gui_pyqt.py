@@ -625,9 +625,12 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
                 text_bg_color=tuple(self.global_defaults.get("text_bg_color", list(self.text_bg_color))),
             )
             if not replace_all:
-                # Preserve existing per-region text settings when partially updating
+                # Preserve existing region metadata when partially updating after a resize.
                 try:
                     old = self.region_data[index]
+                    data.user_text = getattr(old, "user_text", data.user_text)
+                    data.clean_region = getattr(old, "clean_region", data.clean_region)
+                    data.text_angle = getattr(old, "text_angle", 0.0)
                     data.font_family = getattr(old, "font_family", data.font_family)
                     data.font_size = getattr(old, "font_size", data.font_size)
                     data.text_center = getattr(old, "text_center", data.text_center)
@@ -1460,7 +1463,7 @@ class PreviewWidget(QtWidgets.QLabel):
         elif edge == "top-left":
             x0, y0 = new_x, new_y
         elif edge == "top-right":
-            x1, y1 = new_x, new_y
+            x1, y0 = new_x, new_y
         elif edge == "bottom-left":
             x0, y1 = new_x, new_y
         elif edge == "bottom-right":
