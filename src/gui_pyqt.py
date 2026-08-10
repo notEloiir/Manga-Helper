@@ -410,6 +410,12 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.update_text_bg_color_button()
         settings_layout.addRow("BG Color:", self.text_bg_color_button)
 
+        self.reset_colors_button = QtWidgets.QPushButton("Reset Colors")
+        self.reset_colors_button.setFixedHeight(30)
+        self.reset_colors_button.setToolTip("Reset text colors to default black text on white background")
+        self.reset_colors_button.clicked.connect(self.reset_text_colors)
+        settings_layout.addRow(self.reset_colors_button)
+
         middle_layout.addWidget(settings_group)
         middle_layout.addStretch(1)
 
@@ -920,6 +926,20 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             self.save_defaults()
             self.update_text_bg_color_button()
             self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
+
+    def reset_text_colors(self):
+        self.text_color = (0, 0, 0)
+        self.text_bg_color = (255, 255, 255)
+        self.global_defaults["text_color"] = list(self.text_color)
+        self.global_defaults["text_bg_color"] = list(self.text_bg_color)
+        if self.selected_index is not None and 0 <= self.selected_index < len(self.region_data):
+            self.region_data[self.selected_index].text_color = self.text_color
+            self.region_data[self.selected_index].text_bg_color = self.text_bg_color
+            self.unsaved_changes = True
+        self.save_defaults()
+        self.update_text_color_button()
+        self.update_text_bg_color_button()
+        self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
 
     def update_text_color_button(self):
         r, g, b = self.text_color
