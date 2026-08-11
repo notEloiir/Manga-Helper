@@ -2,6 +2,8 @@
 
 A GUI-first tool for learning and assisting with manga translation. It cleans the opened image, allows for text editing, extracts Japanese text from manga images and provides multiple representations to help readers who understand spoken Japanese but need help with kanji.
 
+![Preview](readme_imgs/0_preview.jpg)
+
 All used ML models are cached and used strictly locally. No information leaves your device when using them.
 
 ## Features
@@ -53,13 +55,20 @@ uv run gui.py
 ### Load in the image - either local file or from URL
 The first time you do this will take a while - models will be downloaded and loaded in memory.
 
+![Open image](readme_imgs/1_open.jpg)
+
 ### Now you see all the detected text regions in the `Detected Regions` list on the right.
 You can select a text area from the list, or by clicking on the preview.
 
+![Detected regions](readme_imgs/2_detected.jpg)
+
 ### Correct the detected text regions if you see anything wrong.
 - Resize them by dragging the edge
+![Resize region](readme_imgs/3_0_resize.jpg)
 - Create any regions the automatic detection missed by selecting `Mode: Add region` on the top menu (Leave it by selecting `Mode: Selection`). In this mode you can add a new region by clickling and dragging your mouse to select a rectangle - the region you want to select.
+![Add region](readme_imgs/3_1_add.jpg)
 - Delete redundant text regions by selecting a region to delete and pressing the `X` button below the list.
+![Remove region](readme_imgs/3_2_remove.jpg)
 
 ### You're all set up - let the fun begin
 Select the first region. You might've already noticed that `Region Details` on the right shows some interesting information - different representations of the text and a translation. You can copy-paste the translation if it looks good, treat it as a suggestion or ignore it.
@@ -68,15 +77,25 @@ Select the first region. You might've already noticed that `Region Details` on t
 
 Look at the `Text Editing` sidebar. With a selected region, you can write your text in the `Text Replacement` box, and choose font, size etc. from the options below. Steps to add more fonts is described in [Fonts](README.md#fonts) section of this readme.
 
+![Edit](readme_imgs/4_edit.jpg)
+
 Repeat for the rest of the regions.
 
-### Save the final image
-Press on the `Save Image` button in top menu, and select where do you want to save it.
+### Export the final image
+Press on the `Export Image` button in top menu, and select where do you want to save it.
+
+![Edit](readme_imgs/5_export.jpg)
+
+#### The beautiful result
+![Result](readme_imgs/9_result.jpg)
+
 
 ### Need to pause?
 Use the `Save Regions` button (and type file name where to save them) to save regions data. You can close the app, and when you're ready to resume - open the image again, press `Load Regions` and select the file you saved them to.
 
 > Note: loading regions will replace current regions, potentially losing data. A prompt will appear asking if you're sure.
+
+![Edit](readme_imgs/6_pause.jpg)
 
 ## Usage - CLI
 
