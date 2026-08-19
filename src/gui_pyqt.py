@@ -14,7 +14,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from PySide6 import QtCore, QtGui, QtWidgets
 import os
 
-from src.image_cleaner import clean_image
+from src.image_cleaner import clean_image, region_bg_color
 from src.region_data import RegionData
 from src.ocr import (
     detect_text_regions,
@@ -38,6 +38,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
 
         self.current_image_path = None
         self.original_image = None
+        self.image_array = None
         self.region_data = []
         self.selected_index = None
         self.unsaved_changes = False
@@ -566,6 +567,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
 
         self.current_image_path = Path(path)
         self.original_image = image
+        self.image_array = np.array(image)
         self.region_data = []
         self.selected_index = None
         self.unsaved_changes = False
@@ -864,10 +866,11 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             self.clean_color_override.setStyleSheet("background-color: rgba(180, 180, 180, 0.35); color: #111111;")
             return
 
+        default_color = region_bg_color(self.region_data[self.selected_index], self.image_array)
         override = getattr(self.region_data[self.selected_index], "clean_color_override", None)
         if override is None:
             self.clean_color_override.setText("Default")
-            self.clean_color_override.setStyleSheet("background-color: rgba(180, 180, 180, 0.35); color: #111111;")
+            self.clean_color_override.setStyleSheet(f"background-color: rgb({default_color[0]}, {default_color[1]}, {default_color[2]}); color: #111111;")
             return
 
         r, g, b = override
@@ -880,7 +883,8 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         if self.selected_index is None or self.selected_index >= len(self.region_data):
             return
 
-        current = getattr(self.region_data[self.selected_index], "clean_color_override", None) or (255, 255, 255)
+        default_color = region_bg_color(self.region_data[self.selected_index], self.image_array)
+        current = getattr(self.region_data[self.selected_index], "clean_color_override", None) or default_color
         color = QtWidgets.QColorDialog.getColor(
             QtGui.QColor(*current),
             self,
