@@ -456,11 +456,25 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
 
         right_layout.addWidget(region_buttons)
 
-        details_group = QtWidgets.QGroupBox("Region Details")
-        details_layout = QtWidgets.QVBoxLayout(details_group)
-        self.detail_text = QtWidgets.QTextEdit(readOnly=True)
-        details_layout.addWidget(self.detail_text)
-        right_layout.addWidget(details_group)
+        self.original_text = QtWidgets.QTextEdit(readOnly=True)
+        self.hiragana_text = QtWidgets.QTextEdit(readOnly=True)
+        self.romaji_text = QtWidgets.QTextEdit(readOnly=True)
+        self.translation_text = QtWidgets.QTextEdit(readOnly=True)
+
+        self.original_text.setMaximumHeight(100)
+        self.hiragana_text.setMaximumHeight(100)
+        self.romaji_text.setMaximumHeight(100)
+        self.translation_text.setMaximumHeight(100)
+
+        right_layout.addWidget(QtWidgets.QLabel("Original:"))
+        right_layout.addWidget(self.original_text)
+        right_layout.addWidget(QtWidgets.QLabel("Hiragana:"))
+        right_layout.addWidget(self.hiragana_text)
+        right_layout.addWidget(QtWidgets.QLabel("Romaji:"))
+        right_layout.addWidget(self.romaji_text)
+        right_layout.addWidget(QtWidgets.QLabel("Translation:"))
+        right_layout.addWidget(self.translation_text)
+
         right_layout.addStretch(1)
 
         main_layout.addWidget(left_panel, stretch=3)
@@ -683,7 +697,10 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
 
     def update_region_details(self):
         if self.selected_index is None or self.selected_index >= len(self.region_data):
-            self.detail_text.setPlainText("No text region selected.")
+            self.original_text.setPlainText("")
+            self.hiragana_text.setPlainText("")
+            self.romaji_text.setPlainText("")
+            self.translation_text.setPlainText("")
             self.user_text_edit.setText("")
             self.user_text_edit.setEnabled(False)
             self._ignore_clean_checkbox = True
@@ -708,17 +725,10 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             region.text_padding = int(self.global_defaults.get("text_padding", region.text_padding))
             region.text_color = tuple(self.global_defaults.get("text_color", list(region.text_color)))
             region.text_bg_color = tuple(self.global_defaults.get("text_bg_color", list(region.text_bg_color)))
-        lines = [
-            "Japanese:",
-            region.ocr_text,
-            "Hiragana:",
-            region.hiragana,
-            "Romaji:",
-            region.romaji,
-            "English:",
-            region.translation,
-        ]
-        self.detail_text.setPlainText("\n".join(lines))
+        self.original_text.setPlainText(region.ocr_text)
+        self.hiragana_text.setPlainText(region.hiragana)
+        self.romaji_text.setPlainText(region.romaji)
+        self.translation_text.setPlainText(region.translation)
         self.user_text_edit.setEnabled(True)
         self._ignore_user_text = True
         self.user_text_edit.setText(region.user_text)
