@@ -91,7 +91,7 @@ def sample_background_color(image_array, bbox, border_px=5):
         return (255, 255, 255)
 
 
-def _extract_bbox(region):
+def extract_bbox(region):
     if isinstance(region, np.ndarray):
         if region.ndim == 2 and region.shape[1] == 2:
             return [(int(point[0]), int(point[1])) for point in region]
@@ -140,14 +140,9 @@ def clean_image(image, text_regions, opacity=0.8):
     overlay_draw = ImageDraw.Draw(overlay)
 
     for region in text_regions:
-        if isinstance(region, RegionData):
-            bbox = region.bbox
-            region_opacity = getattr(region, "clean_opacity", opacity)
-            region_color_override = getattr(region, "clean_color_override", None)
-        else:
-            bbox = _extract_bbox(region)
-            region_opacity = opacity
-            region_color_override = None
+        bbox = region.bbox
+        region_opacity = getattr(region, "clean_opacity", opacity)
+        region_color_override = getattr(region, "clean_color_override", None)
 
         polygon = [(int(p[0]), int(p[1])) for p in bbox]
         if region_color_override is None:
