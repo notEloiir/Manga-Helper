@@ -140,16 +140,25 @@ def clean_image(image, text_regions, opacity=0.8):
     overlay_draw = ImageDraw.Draw(overlay)
 
     for region in text_regions:
-        bbox = region.bbox
-        region_opacity = getattr(region, "clean_opacity", opacity)
-        region_color_override = getattr(region, "clean_color_override", None)
+        if region.clean_region is False:
+            continue
+        region_color_override = region.clean_color_override
 
-        polygon = [(int(p[0]), int(p[1])) for p in bbox]
+        # Allow a per-region free-form selection to override the bbox.
+        selection = getattr(region, "clean_shape_selection", None)
+        if selection:
+            polygon = [(int(p[0]), int(p[1])) for p in selection]
+            sample_target = polygon
+        else:
+            bbox = region.bbox
+            polygon = [(int(p[0]), int(p[1])) for p in bbox]
+            sample_target = bbox
+
         if region_color_override is None:
-            bg_color = sample_background_color(img_array, bbox)
+            bg_color = sample_background_color(img_array, sample_target)
         else:
             bg_color = region_color_override
-        alpha = int(255 * max(0.0, min(1.0, float(region_opacity))))
+        alpha = int(255 * region.clean_opacity)
         overlay_color = bg_color + (alpha,)
         overlay_draw.polygon(polygon, fill=overlay_color)
 

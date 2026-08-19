@@ -55,7 +55,13 @@ def main():
         # Extract text using MangaOCR (handles vertical text)
         extracted_texts = extract_text(image, sorted_regions)
         region_data_list = [
-            RegionData(bbox=extract_bbox(region), ocr_text=text) for region, text in zip(sorted_regions, extracted_texts)
+            RegionData(
+                bbox=extract_bbox(region),
+                ocr_text=text,
+                clean_region=True,
+                clean_opacity=0.9
+                )
+            for region, text in zip(sorted_regions, extracted_texts)
         ]
         
         # Get translations with full context

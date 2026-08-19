@@ -15,6 +15,7 @@ class RegionData:
     clean_region: bool = True
     clean_opacity: float = 0.9
     clean_color_override: tuple | None = None
+    clean_shape_selection: list | None = None
     # Per-region text settings
     font_family: str = ""
     font_size: int = 24

@@ -285,7 +285,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
 
         self.add_region_action = QtGui.QAction("Add Region", self)
         self.add_region_action.setCheckable(True)
-        self.add_region_action.toggled.connect(self.toggle_add_region_mode)
+        self.add_region_action.toggled.connect(self.enter_add_region_mode)
         toolbar.addAction(self.add_region_action)
 
         action_group = QtGui.QActionGroup(self)
@@ -348,6 +348,12 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.clean_opacity_label.setFixedWidth(40)
         opacity_layout.addWidget(self.clean_opacity_label)
         clean_layout.addRow("Opacity:", opacity_widget)
+
+        self.clean_select_button = QtWidgets.QPushButton("Clean Free Select")
+        self.clean_select_button.setFixedHeight(30)
+        self.clean_select_button.setCheckable(True)
+        self.clean_select_button.toggled.connect(self.enter_clean_select_mode)
+        clean_layout.addRow(self.clean_select_button)
 
         self.clean_color_override = QtWidgets.QPushButton()
         self.clean_color_override.setFixedHeight(30)
@@ -669,6 +675,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
                     data.clean_region = getattr(old, "clean_region", data.clean_region)
                     data.clean_opacity = getattr(old, "clean_opacity", data.clean_opacity)
                     data.clean_color_override = getattr(old, "clean_color_override", data.clean_color_override)
+                    data.clean_shape_selection = getattr(old, "clean_shape_selection", data.clean_shape_selection)
                     data.text_angle = getattr(old, "text_angle", 0.0)
                     data.font_family = getattr(old, "font_family", data.font_family)
                     data.font_size = getattr(old, "font_size", data.font_size)
@@ -908,31 +915,67 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.unsaved_changes = True
         self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
 
-    def enter_add_region_mode(self):
-        if self.original_image is None:
-            QtWidgets.QMessageBox.information(self, "Open Image", "Please open an image before adding a new region.")
+    def reset_mode(self, new_mode):
+        if self.mode == "clean_select" and self.selected_index is not None:
+            self.region_data[self.selected_index].clean_region = self.clean_checkbox.isChecked() if self.selected_index is not None else True
+            self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
+        self.mode = new_mode
+        try:
             self.add_region_action.setChecked(False)
-            return
-        self.mode = "new_region"
-        self.add_region_action.setChecked(True)
-        self.set_status("Drag on the preview to draw a new text region.")
-        self.preview_widget.set_mode(self.mode)
+        except Exception:
+            pass
+        try:
+            self.clean_select_button.setChecked(False)
+        except Exception:
+            pass
+        try:
+            self.select_action.setChecked(False)
+        except Exception:
+            pass
 
-    def enter_select_mode(self):
-        self.mode = "select"
+    def enter_select_mode(self, checked):
+        # Uncheck other mode controls
+        mode = "select"
+        if not checked or self.mode == mode:
+            return
+        self.reset_mode(mode)
         self.select_action.setChecked(True)
         self.set_status("Selection mode enabled.")
         self.preview_widget.set_mode(self.mode)
 
-    def toggle_add_region_mode(self, checked):
-        if checked:
-            self.mode = "new_region"
-            self.set_status("Drag on the preview to draw a new text region.")
-        else:
-            self.mode = "select"
-            self.select_action.setChecked(True)
-            self.set_status("Selection mode enabled.")
+    def enter_add_region_mode(self, checked):
+        if self.original_image is None:
+            QtWidgets.QMessageBox.information(self, "Open Image", "Please open an image before adding a new region.")
+            return
+        # uncheck other mode controls
+        mode = "new_region"
+        if not checked or self.mode == mode:
+            return
+        self.reset_mode(mode)
+        self.add_region_action.setChecked(True)
+        self.set_status("Drag on the preview to draw a new text region.")
         self.preview_widget.set_mode(self.mode)
+
+    def enter_clean_select_mode(self, checked):
+        """Toggle free-form clean selection (lasso) mode."""
+        if self.original_image is None:
+            QtWidgets.QMessageBox.information(self, "Open Image", "Please open an image before adding a new region.")
+            return
+        if self.selected_index is None:
+            QtWidgets.QMessageBox.information(self, "Select Region", "Please select a region before free-selecting a clean area.")
+            return
+        # Uncheck other mode controls
+        mode = "clean_select"
+        if not checked or self.mode == mode:
+            return
+        self.reset_mode(mode)
+        self.clean_select_button.setChecked(True)
+        self.set_status("Draw a free-form selection on the preview to set the clean area for the selected region.")
+        self.preview_widget.set_mode(self.mode)
+
+        # Temporarily stop drawing the clean region mask while in free-select mode
+        self.region_data[self.selected_index].clean_region = False
+        self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
 
     def on_region_selected(self, row):
         if row < 0:
@@ -940,7 +983,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         else:
             self.selected_index = row
             if self.mode == "new_region":
-                self.enter_select_mode()
+                self.enter_select_mode(True)
         self.update_region_details()
         self.preview_widget.set_selected_index(self.selected_index)
         self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
@@ -1093,11 +1136,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             return
 
         # Apply the modifications to original image now
-        image_to_save = clean_image(
-            self.original_image,
-            [region for region in self.region_data if region.clean_region],
-            opacity=0.9,
-        )
+        image_to_save = clean_image(self.original_image, self.region_data, opacity=0.9)
         image_to_save = self.render_user_text_overlay(image_to_save)
 
         output_path = Path(path)
@@ -1147,6 +1186,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
                     "confidence": region.confidence,
                     "to_update": region.to_update,
                     "clean_region": region.clean_region,
+                    "clean_shape_selection": [list(p) for p in region.clean_shape_selection] if getattr(region, "clean_shape_selection", None) is not None else None,
                     "clean_opacity": region.clean_opacity,
                     "clean_color_override": list(region.clean_color_override) if region.clean_color_override is not None else None,
                     "font_family": region.font_family,
@@ -1163,7 +1203,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         }
 
         with export_path.open("w", encoding="utf-8") as handle:
-            json.dump(export_data, handle, ensure_ascii=False, indent=2)
+            json.dump(export_data, handle, ensure_ascii=False, indent=-1)
 
         self.set_status(f"Regions exported to {export_path.name}")
 
@@ -1213,6 +1253,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
                     clean_region=region.get("clean_region", True),
                     clean_opacity=float(region.get("clean_opacity", self.global_defaults.get("clean_opacity", self.clean_opacity))),
                     clean_color_override=tuple(region["clean_color_override"]) if region.get("clean_color_override") is not None else None,
+                    clean_shape_selection=[tuple(p) for p in region.get("clean_shape_selection")] if region.get("clean_shape_selection") is not None else None,
                     font_family=region.get("font_family", self.font_family),
                     font_size=int(region.get("font_size", self.font_size)),
                     text_angle=float(region.get("text_angle", 0.0)),
@@ -1415,6 +1456,9 @@ class PreviewWidget(QtWidgets.QLabel):
         self.dragging_edge = None
         self.hovered_edge = None
         self.drag_preview_bbox = None
+        # For free-form clean selection (lasso)
+        self.free_select_points = None
+        self.free_select_widget_path = None
 
     def set_mode(self, mode):
         self.mode = mode
@@ -1430,11 +1474,7 @@ class PreviewWidget(QtWidgets.QLabel):
             self.current_image = None
             return
 
-        preview = clean_image(
-            image,
-            [region for region in region_data if region.clean_region],
-            opacity=0.9,
-        )
+        preview = clean_image(image, region_data, opacity=0.9)
         preview = parent_window.render_user_text_overlay(preview)
 
         self.current_image = preview
@@ -1458,6 +1498,14 @@ class PreviewWidget(QtWidgets.QLabel):
         if self.mode == "new_region":
             self.start_point = event.position()
             self.preview_rect = QtCore.QRect(self.start_point.toPoint(), QtCore.QSize())
+        elif self.mode == "clean_select":
+            # Start free-form selection (store image coords)
+            img_coords = self.widget_to_image_coords(event.position())
+            if img_coords is None:
+                return
+            self.free_select_points = [img_coords]
+            self.free_select_widget_path = None
+            self.setCursor(QtCore.Qt.CrossCursor)
         elif self.mode == "select":
             img_coords = self.widget_to_image_coords(event.position())
             resizing = False
@@ -1558,6 +1606,15 @@ class PreviewWidget(QtWidgets.QLabel):
             current_point = event.position()
             self.preview_rect = QtCore.QRect(self.start_point.toPoint(), current_point.toPoint()).normalized()
             self.update()
+        elif self.mode == "clean_select" and self.free_select_points is not None:
+            img_coords = self.widget_to_image_coords(event.position())
+            if img_coords is None:
+                return
+            last = self.free_select_points[-1]
+            # avoid appending identical consecutive points
+            if img_coords != last:
+                self.free_select_points.append(img_coords)
+            self.update()
         elif self.mode == "select":
             if self.dragging_edge:
                 # Handle dragging to resize
@@ -1642,7 +1699,7 @@ class PreviewWidget(QtWidgets.QLabel):
                     self.update()
                     return
             self.parent_window.add_new_region(bbox)
-            self.parent_window.enter_select_mode()
+            self.parent_window.enter_select_mode(True)
             self.start_point = None
             self.preview_rect = None
             self.update()
@@ -1666,6 +1723,31 @@ class PreviewWidget(QtWidgets.QLabel):
             self.drag_preview_bbox = None
             self.update_cursor_for_current_position(event)
             self.start_point = None
+            self.update()
+        elif self.mode == "clean_select":
+            # Finish free-form selection and assign to selected region
+            if self.free_select_points and self.parent_window and self.parent_window.selected_index is not None:
+                if len(self.free_select_points) < 3:
+                    self.free_select_points = None
+                    self.free_select_widget_path = None
+                    self.setCursor(QtCore.Qt.ArrowCursor)
+                    self.update()
+                    return
+                # Assign the polygon (list of points) to the region
+                idx = self.parent_window.selected_index
+                try:
+                    self.parent_window.region_data[idx].clean_shape_selection = list(self.free_select_points)
+                    # ensure region will be cleaned and mark unsaved
+                    self.parent_window.region_data[idx].clean_region = True
+                    self.parent_window.unsaved_changes = True
+                except Exception:
+                    pass
+                # Update UI
+                self.parent_window.refresh_ui()
+            self.parent_window.enter_select_mode(True)
+            self.free_select_points = None
+            self.free_select_widget_path = None
+            self.setCursor(QtCore.Qt.ArrowCursor)
             self.update()
 
     def widget_to_image_coords(self, point):
@@ -1697,7 +1779,7 @@ class PreviewWidget(QtWidgets.QLabel):
         y = point[1] * scale + py
         return (x, y)
 
-    def draw_bbox(self, painter, bbox, color=(0, 255, 0), width=3, dash=False):
+    def draw_bbox(self, painter, bbox, color=(0, 255, 0), width=1, dash=False, opacity=0.5):
         if self.current_image is None:
             return
         x0, y0 = bbox[0]
@@ -1706,9 +1788,9 @@ class PreviewWidget(QtWidgets.QLabel):
         bottom_right = self.image_to_widget_coords((x1, y1))
         if top_left is None or bottom_right is None:
             return
-
         rect = QtCore.QRectF(top_left[0], top_left[1], bottom_right[0] - top_left[0], bottom_right[1] - top_left[1])
-        pen = QtGui.QPen(QtGui.QColor(*color), width)
+        alpha = int(max(0, min(1, float(opacity))) * 255)
+        pen = QtGui.QPen(QtGui.QColor(color[0], color[1], color[2], alpha), width)
         if dash:
             pen.setStyle(QtCore.Qt.DashLine)
         painter.setPen(pen)
@@ -1718,16 +1800,29 @@ class PreviewWidget(QtWidgets.QLabel):
         super().paintEvent(event)
         painter = QtGui.QPainter(self)
         if self.preview_rect is not None:
-            painter.setPen(QtGui.QPen(QtGui.QColor("cyan"), 2, QtCore.Qt.DashLine))
+            cyan = QtGui.QColor(0, 255, 255, int(255 * 0.5))
+            pen = QtGui.QPen(cyan, 1, QtCore.Qt.DashLine)
+            painter.setPen(pen)
             painter.drawRect(self.preview_rect)
 
         if self.mode == "select" and self.current_image is not None:
             if self.drag_preview_bbox is not None:
-                self.draw_bbox(painter, self.drag_preview_bbox, color=(255, 255, 0), width=3)
+                self.draw_bbox(painter, self.drag_preview_bbox, color=(255, 255, 0), width=1)
             elif self.selected_index is not None and self.parent_window is not None:
                 if 0 <= self.selected_index < len(self.parent_window.region_data):
                     selected_bbox = self.parent_window.region_data[self.selected_index].bbox
-                    self.draw_bbox(painter, selected_bbox, color=(0, 255, 0), width=3)
+                    self.draw_bbox(painter, selected_bbox, color=(0, 255, 0), width=1)
+
+        # Draw free-select path while in clean_select mode
+        if self.mode == "clean_select" and self.free_select_points:
+            pen = QtGui.QPen(QtGui.QColor(0, 200, 255, int(255 * 0.5)), 1)
+            brush = QtGui.QBrush(QtGui.QColor(0, 200, 255, 60))
+            painter.setPen(pen)
+            painter.setBrush(brush)
+            widget_pts = [QtCore.QPointF(*self.image_to_widget_coords(p)) for p in self.free_select_points if self.image_to_widget_coords(p) is not None]
+            if len(widget_pts) >= 2:
+                poly = QtGui.QPolygonF(widget_pts)
+                painter.drawPolygon(poly)
 
 
 def main():
