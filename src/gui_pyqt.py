@@ -349,6 +349,19 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         opacity_layout.addWidget(self.clean_opacity_label)
         clean_layout.addRow("Opacity:", opacity_widget)
 
+        self.clean_color_override = QtWidgets.QPushButton()
+        self.clean_color_override.setFixedHeight(30)
+        self.clean_color_override.setToolTip("Click to override clean color")
+        self.clean_color_override.clicked.connect(self.on_clean_color_clicked)
+        self.update_clean_color_override()
+        clean_layout.addRow("Clean Color:", self.clean_color_override)
+
+        self.reset_clean_button = QtWidgets.QPushButton("Reset Clean Settings")
+        self.reset_clean_button.setFixedHeight(30)
+        self.reset_clean_button.setToolTip("Reset clean settings to the current global defaults")
+        self.reset_clean_button.clicked.connect(self.reset_clean_settings)
+        clean_layout.addRow(self.reset_clean_button)
+
         middle_layout.addWidget(clean_group)
         # End of clean settings group
 
@@ -639,6 +652,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
                 to_update=False,
                 clean_region=True,
                 clean_opacity=float(self.global_defaults.get("clean_opacity", self.clean_opacity)),
+                clean_color_override=None,
                 font_family=self.global_defaults.get("font_family", self.font_family),
                 font_size=int(self.global_defaults.get("font_size", self.font_size)),
                 text_center=bool(self.global_defaults.get("text_center", self.text_center)),
@@ -654,6 +668,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
                     data.user_text = getattr(old, "user_text", data.user_text)
                     data.clean_region = getattr(old, "clean_region", data.clean_region)
                     data.clean_opacity = getattr(old, "clean_opacity", data.clean_opacity)
+                    data.clean_color_override = getattr(old, "clean_color_override", data.clean_color_override)
                     data.text_angle = getattr(old, "text_angle", 0.0)
                     data.font_family = getattr(old, "font_family", data.font_family)
                     data.font_size = getattr(old, "font_size", data.font_size)
@@ -766,6 +781,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.clean_opacity_slider.setEnabled(True)
         self.clean_opacity_slider.setValue(int(region.clean_opacity * 100))
         self.clean_opacity_label.setText(f"{region.clean_opacity * 100:.0f}%")
+        self.update_clean_color_override()
 
         self._ignore_angle_slider = True
         self.angle_slider.setValue(int(region.text_angle))
@@ -834,6 +850,63 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             "clean_opacity": opacity,
         })
         self.save_defaults()
+
+    def update_clean_color_override(self):
+        if self.selected_index is None or self.selected_index >= len(self.region_data):
+            self.clean_color_override.setText("Default")
+            self.clean_color_override.setStyleSheet("background-color: rgba(180, 180, 180, 0.35); color: #111111;")
+            return
+
+        override = getattr(self.region_data[self.selected_index], "clean_color_override", None)
+        if override is None:
+            self.clean_color_override.setText("Default")
+            self.clean_color_override.setStyleSheet("background-color: rgba(180, 180, 180, 0.35); color: #111111;")
+            return
+
+        r, g, b = override
+        self.clean_color_override.setText("Custom")
+        self.clean_color_override.setStyleSheet(
+            f"background-color: rgb({r}, {g}, {b}); color: rgb({255-r}, {255-g}, {255-b});"
+        )
+
+    def on_clean_color_clicked(self):
+        if self.selected_index is None or self.selected_index >= len(self.region_data):
+            return
+
+        current = getattr(self.region_data[self.selected_index], "clean_color_override", None) or (255, 255, 255)
+        color = QtWidgets.QColorDialog.getColor(
+            QtGui.QColor(*current),
+            self,
+            "Select Clean Color Override"
+        )
+        if not color.isValid():
+            return
+
+        self.region_data[self.selected_index].clean_color_override = (
+            color.red(),
+            color.green(),
+            color.blue(),
+        )
+        self.unsaved_changes = True
+        self.update_clean_color_override()
+        self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
+
+    def reset_clean_settings(self):
+        if self.selected_index is None or self.selected_index >= len(self.region_data):
+            return
+
+        region = self.region_data[self.selected_index]
+        default_opacity = float(self.global_defaults.get("clean_opacity", self.clean_opacity))
+        region.clean_opacity = default_opacity
+        region.clean_color_override = None
+        region.clean_region = True
+
+        self.clean_checkbox.setChecked(region.clean_region)
+        self.clean_opacity_slider.setValue(int(region.clean_opacity * 100))
+        self.clean_opacity_label.setText(f"{region.clean_opacity * 100:.0f}%")
+        self.update_clean_color_override()
+        self.unsaved_changes = True
+        self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
 
     def enter_add_region_mode(self):
         if self.original_image is None:
@@ -1075,6 +1148,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
                     "to_update": region.to_update,
                     "clean_region": region.clean_region,
                     "clean_opacity": region.clean_opacity,
+                    "clean_color_override": list(region.clean_color_override) if region.clean_color_override is not None else None,
                     "font_family": region.font_family,
                     "font_size": region.font_size,
                     "text_angle": region.text_angle,
@@ -1138,6 +1212,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
                     to_update=region.get("to_update", False),
                     clean_region=region.get("clean_region", True),
                     clean_opacity=float(region.get("clean_opacity", self.global_defaults.get("clean_opacity", self.clean_opacity))),
+                    clean_color_override=tuple(region["clean_color_override"]) if region.get("clean_color_override") is not None else None,
                     font_family=region.get("font_family", self.font_family),
                     font_size=int(region.get("font_size", self.font_size)),
                     text_angle=float(region.get("text_angle", 0.0)),

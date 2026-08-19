@@ -143,12 +143,17 @@ def clean_image(image, text_regions, opacity=0.8):
         if isinstance(region, RegionData):
             bbox = region.bbox
             region_opacity = getattr(region, "clean_opacity", opacity)
+            region_color_override = getattr(region, "clean_color_override", None)
         else:
             bbox = _extract_bbox(region)
             region_opacity = opacity
+            region_color_override = None
 
         polygon = [(int(p[0]), int(p[1])) for p in bbox]
-        bg_color = sample_background_color(img_array, bbox)
+        if region_color_override is None:
+            bg_color = sample_background_color(img_array, bbox)
+        else:
+            bg_color = region_color_override
         alpha = int(255 * max(0.0, min(1.0, float(region_opacity))))
         overlay_color = bg_color + (alpha,)
         overlay_draw.polygon(polygon, fill=overlay_color)
