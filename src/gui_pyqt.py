@@ -9,13 +9,13 @@ import shutil
 import numpy as np
 import re
 
-from dataclasses import dataclass
 import json
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from PySide6 import QtCore, QtGui, QtWidgets
 import os
 
 from src.image_cleaner import clean_image
+from src.region_data import RegionData
 from src.ocr import (
     detect_text_regions,
     sort_text_regions,
@@ -28,29 +28,6 @@ from src.text_processor import (
     convert_to_romaji,
     translate,
 )
-
-
-@dataclass
-class RegionData:
-    bbox: list
-    ocr_text: str = ""
-    hiragana: str = ""
-    romaji: str = ""
-    translation: str = ""
-    user_text: str = ""
-    orientation: str = "horizontal"
-    confidence: float | None = None
-    to_update: bool = False
-    clean_region: bool = True
-    # Per-region text settings
-    font_family: str = ""
-    font_size: int = 24
-    text_angle: float = 0.0
-    text_center: bool = True
-    text_align_center: bool = True
-    text_padding: int = -16
-    text_color: tuple = (0, 0, 0)
-    text_bg_color: tuple = (255, 255, 255)
 
 
 class MangaHelperGUI(QtWidgets.QMainWindow):
@@ -76,6 +53,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.text_center = True
         self.text_align_center = True
         self.text_padding = -16
+        self.clean_opacity = 0.9
         self.text_color = (0, 0, 0)  # Black
         self.text_bg_color = (255, 255, 255)  # White
 
@@ -188,6 +166,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             "font_family": self.font_family,
             "font_size": self.font_size,
             "text_padding": self.text_padding,
+            "clean_opacity": self.clean_opacity,
             "text_color": list(self.text_color),
             "text_bg_color": list(self.text_bg_color),
             "window_width": self.window_width,
@@ -221,6 +200,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.text_center = True
         self.text_align_center = True
         self.text_padding = int(self.global_defaults.get("text_padding", self.text_padding))
+        self.clean_opacity = float(self.global_defaults.get("clean_opacity", self.clean_opacity))
         self.text_color = tuple(self.global_defaults.get("text_color", list(self.text_color)))
         self.text_bg_color = tuple(self.global_defaults.get("text_bg_color", list(self.text_bg_color)))
 
@@ -230,6 +210,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             data["window_width"] = self.window_width
             data["window_height"] = self.window_height
             data["fullscreen"] = self.fullscreen
+            data["clean_opacity"] = float(self.clean_opacity)
             # ensure serializable
             data["text_color"] = list(data.get("text_color", self.text_color))
             data["text_bg_color"] = list(data.get("text_bg_color", self.text_bg_color))
@@ -343,12 +324,33 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.user_text_edit.textChanged.connect(lambda: self.on_user_text_changed(self.user_text_edit.toPlainText()))
         text_edit_layout.addWidget(self.user_text_edit)
 
+        middle_layout.addWidget(text_edit_group)
+
+        # Clean settings group
+        clean_group = QtWidgets.QGroupBox("Clean Settings")
+        clean_layout = QtWidgets.QFormLayout(clean_group)
+
         self.clean_checkbox = QtWidgets.QCheckBox("Clean region")
         self.clean_checkbox.stateChanged.connect(self.on_clean_checkbox_changed)
         self.clean_checkbox.setEnabled(False)
-        text_edit_layout.addWidget(self.clean_checkbox)
+        clean_layout.addRow(self.clean_checkbox)
 
-        middle_layout.addWidget(text_edit_group)
+        opacity_widget = QtWidgets.QWidget()
+        opacity_layout = QtWidgets.QHBoxLayout(opacity_widget)
+        opacity_layout.setContentsMargins(0, 0, 0, 0)
+        self.clean_opacity_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+        self.clean_opacity_slider.setRange(0, 100)
+        self.clean_opacity_slider.setValue(int(self.clean_opacity * 100))
+        self.clean_opacity_slider.setEnabled(False)
+        self.clean_opacity_slider.valueChanged.connect(self.on_clean_opacity_changed)
+        opacity_layout.addWidget(self.clean_opacity_slider)
+        self.clean_opacity_label = QtWidgets.QLabel(f"{self.clean_opacity * 100:.0f}%")
+        self.clean_opacity_label.setFixedWidth(40)
+        opacity_layout.addWidget(self.clean_opacity_label)
+        clean_layout.addRow("Opacity:", opacity_widget)
+
+        middle_layout.addWidget(clean_group)
+        # End of clean settings group
 
         settings_group = QtWidgets.QGroupBox("Text Settings")
         settings_layout = QtWidgets.QFormLayout(settings_group)
@@ -636,6 +638,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
                 confidence=region[2] if len(region) > 2 else None,
                 to_update=False,
                 clean_region=True,
+                clean_opacity=float(self.global_defaults.get("clean_opacity", self.clean_opacity)),
                 font_family=self.global_defaults.get("font_family", self.font_family),
                 font_size=int(self.global_defaults.get("font_size", self.font_size)),
                 text_center=bool(self.global_defaults.get("text_center", self.text_center)),
@@ -650,6 +653,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
                     old = self.region_data[index]
                     data.user_text = getattr(old, "user_text", data.user_text)
                     data.clean_region = getattr(old, "clean_region", data.clean_region)
+                    data.clean_opacity = getattr(old, "clean_opacity", data.clean_opacity)
                     data.text_angle = getattr(old, "text_angle", 0.0)
                     data.font_family = getattr(old, "font_family", data.font_family)
                     data.font_size = getattr(old, "font_size", data.font_size)
@@ -707,6 +711,8 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             self.clean_checkbox.setChecked(False)
             self._ignore_clean_checkbox = False
             self.clean_checkbox.setEnabled(False)
+            self.clean_opacity_slider.setEnabled(False)
+            self.clean_opacity_label.setText(f"{self.clean_opacity * 100:.0f}%")
             self._ignore_angle_slider = True
             self.angle_slider.setValue(0)
             self.angle_label.setText("0°")
@@ -756,6 +762,10 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.clean_checkbox.setChecked(region.clean_region)
         self._ignore_clean_checkbox = False
         self.clean_checkbox.setEnabled(True)
+
+        self.clean_opacity_slider.setEnabled(True)
+        self.clean_opacity_slider.setValue(int(region.clean_opacity * 100))
+        self.clean_opacity_label.setText(f"{region.clean_opacity * 100:.0f}%")
 
         self._ignore_angle_slider = True
         self.angle_slider.setValue(int(region.text_angle))
@@ -811,6 +821,19 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.region_data[self.selected_index].clean_region = bool(state)
         self.unsaved_changes = True
         self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
+
+    def on_clean_opacity_changed(self, value):
+        if self.selected_index is None:
+            return
+        opacity = max(0.0, min(1.0, value / 100.0))
+        self.region_data[self.selected_index].clean_opacity = opacity
+        self.clean_opacity_label.setText(f"{value}%")
+        self.unsaved_changes = True
+        self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
+        self.global_defaults.update({
+            "clean_opacity": opacity,
+        })
+        self.save_defaults()
 
     def enter_add_region_mode(self):
         if self.original_image is None:
@@ -999,7 +1022,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         # Apply the modifications to original image now
         image_to_save = clean_image(
             self.original_image,
-            [region.bbox for region in self.region_data if region.clean_region],
+            [region for region in self.region_data if region.clean_region],
             opacity=0.9,
         )
         image_to_save = self.render_user_text_overlay(image_to_save)
@@ -1051,6 +1074,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
                     "confidence": region.confidence,
                     "to_update": region.to_update,
                     "clean_region": region.clean_region,
+                    "clean_opacity": region.clean_opacity,
                     "font_family": region.font_family,
                     "font_size": region.font_size,
                     "text_angle": region.text_angle,
@@ -1113,6 +1137,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
                     confidence=region.get("confidence"),
                     to_update=region.get("to_update", False),
                     clean_region=region.get("clean_region", True),
+                    clean_opacity=float(region.get("clean_opacity", self.global_defaults.get("clean_opacity", self.clean_opacity))),
                     font_family=region.get("font_family", self.font_family),
                     font_size=int(region.get("font_size", self.font_size)),
                     text_angle=float(region.get("text_angle", 0.0)),
@@ -1274,6 +1299,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             confidence=None,
             to_update=True,
             clean_region=True,
+            clean_opacity=float(defaults.get("clean_opacity", self.clean_opacity)),
             font_family=defaults.get("font_family", self.font_family),
             font_size=int(defaults.get("font_size", self.font_size)),
             text_center=True,
@@ -1331,7 +1357,7 @@ class PreviewWidget(QtWidgets.QLabel):
 
         preview = clean_image(
             image,
-            [region.bbox for region in region_data if region.clean_region],
+            [region for region in region_data if region.clean_region],
             opacity=0.9,
         )
         preview = parent_window.render_user_text_overlay(preview)

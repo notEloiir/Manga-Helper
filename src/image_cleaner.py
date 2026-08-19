@@ -5,6 +5,8 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw
 
+from src.region_data import RegionData
+
 
 def sample_background_color(image_array, bbox, border_px=5):
     """Sample the dominant background color from a border inside the text region.
@@ -127,8 +129,8 @@ def clean_image(image, text_regions, opacity=0.8):
 
     Args:
         image: PIL Image object
-        text_regions: list of bounding polygons or text region tuples
-        opacity: overlay opacity between 0.0 and 1.0
+        text_regions: list of bounding polygons, region tuples, or RegionData objects
+        opacity: default overlay opacity between 0.0 and 1.0
     """
     image = image.convert('RGBA')
     rgb_image = image.convert('RGB')
@@ -136,12 +138,18 @@ def clean_image(image, text_regions, opacity=0.8):
 
     overlay = Image.new('RGBA', image.size, (255, 255, 255, 0))
     overlay_draw = ImageDraw.Draw(overlay)
-    alpha = int(255 * opacity)
 
     for region in text_regions:
-        bbox = _extract_bbox(region)
+        if isinstance(region, RegionData):
+            bbox = region.bbox
+            region_opacity = getattr(region, "clean_opacity", opacity)
+        else:
+            bbox = _extract_bbox(region)
+            region_opacity = opacity
+
         polygon = [(int(p[0]), int(p[1])) for p in bbox]
         bg_color = sample_background_color(img_array, bbox)
+        alpha = int(255 * max(0.0, min(1.0, float(region_opacity))))
         overlay_color = bg_color + (alpha,)
         overlay_draw.polygon(polygon, fill=overlay_color)
 
