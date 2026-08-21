@@ -6,6 +6,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from src.region_data import RegionData
+from src.inpainting import inpaint_regions
 
 
 def sample_background_color(image_array, polygon, border_px=5):
@@ -170,8 +171,10 @@ def clean_image(image, text_regions, opacity=0.8):
     overlay = Image.new('RGBA', image.size, (255, 255, 255, 0))
     overlay_draw = ImageDraw.Draw(overlay)
 
+    redraw_polygons = []
+
     for region in text_regions:
-        if region.clean_region is False:
+        if region.clean_region is False and region.redraw_region is False:
             continue
         region_color_override = region.clean_color_override
 
@@ -185,6 +188,10 @@ def clean_image(image, text_regions, opacity=0.8):
             polygon = [(int(p[0]), int(p[1])) for p in bbox]
             sample_target = bbox
 
+        if region.redraw_region:
+            redraw_polygons.append(polygon)
+            continue
+
         if region_color_override is None:
             bg_color = sample_background_color(img_array, sample_target)
         else:
@@ -192,5 +199,17 @@ def clean_image(image, text_regions, opacity=0.8):
         alpha = int(255 * region.clean_opacity)
         overlay_color = bg_color + (alpha,)
         overlay_draw.polygon(polygon, fill=overlay_color)
+    
+    # Try to inpaint the region using a local inpainting model.
+    if len(redraw_polygons):
+        try:
+            res = inpaint_regions(rgb_image, redraw_polygons)
+            if res is not None:
+                final_crop, (x_off, y_off) = res
+                # Paste result directly onto the image (preserve alpha)
+                final_rgba = final_crop.convert("RGBA")
+                image.paste(final_rgba, (x_off, y_off), final_rgba)
+        except Exception as e:
+            print(f"Error during inpainting: {e}", file=sys.stderr)
 
     return Image.alpha_composite(image, overlay)

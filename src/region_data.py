@@ -13,6 +13,7 @@ class RegionData:
     confidence: float | None = None
     to_update: bool = False
     clean_region: bool = True
+    redraw_region: bool = False
     clean_opacity: float = 0.9
     clean_color_override: tuple | None = None
     clean_shape_selection: list | None = None

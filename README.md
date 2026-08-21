@@ -25,7 +25,7 @@ All used ML models are cached and used strictly locally. No information leaves y
 
 - Python 3.10+
 - recommended uv packager manager
-- ~700MiB disk space for OCR models (downloaded on first run)
+- ~1 GiB RAM/VRAM and disk space for OCR models (downloaded on first run), 200 MiB more if using the redraw feature
 - optional GPU acceleration (uses CPU in not available)
 
 If you don't know how to install Python or uv, watch a YT tutorial.
@@ -35,7 +35,13 @@ If you don't know how to install Python or uv, watch a YT tutorial.
 Using `uv` package manager:
 
 ```bash
-uv pip install -e .
+uv sync --extra redraw
+```
+
+Or without the redraw feature:
+
+```bash
+uv sync
 ```
 
 Or with standard pip:
@@ -125,6 +131,7 @@ The CLI produces:
 - **[ocr.py](ocr.py)** - Text detection and OCR extraction
 - **[text_processor.py](text_processor.py)** - Japanese text conversion and translation
 - **[image_cleaner.py](image_cleaner.py)** - Image manipulation and text area cleanup
+- **[inpainting.py](inpainting.py)** - Text area redrawing
 - **[gui.py](gui.py)** - GUI launcher (PySide6)
 
 ## Technical Details

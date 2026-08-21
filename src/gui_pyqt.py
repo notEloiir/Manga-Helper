@@ -331,10 +331,28 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         clean_group = QtWidgets.QGroupBox("Clean Settings")
         clean_layout = QtWidgets.QFormLayout(clean_group)
 
-        self.clean_checkbox = QtWidgets.QCheckBox("Clean region")
-        self.clean_checkbox.stateChanged.connect(self.on_clean_checkbox_changed)
-        self.clean_checkbox.setEnabled(False)
-        clean_layout.addRow(self.clean_checkbox)
+        # Clean mode radio buttons: No clean / BG color / Redraw
+        clean_mode_widget = QtWidgets.QWidget()
+        clean_mode_layout = QtWidgets.QHBoxLayout(clean_mode_widget)
+        clean_mode_layout.setContentsMargins(0, 0, 0, 0)
+        self.clean_mode_no = QtWidgets.QRadioButton("No clean")
+        self.clean_mode_bg = QtWidgets.QRadioButton("BG color")
+        self.clean_mode_redraw = QtWidgets.QRadioButton("Redraw")
+        self.clean_mode_group = QtWidgets.QButtonGroup(self)
+        self.clean_mode_group.addButton(self.clean_mode_no, 0)
+        self.clean_mode_group.addButton(self.clean_mode_bg, 1)
+        self.clean_mode_group.addButton(self.clean_mode_redraw, 2)
+        # default disabled until a region is selected
+        self.clean_mode_no.setEnabled(False)
+        self.clean_mode_bg.setEnabled(False)
+        self.clean_mode_redraw.setEnabled(False)
+        # default selection is BG color
+        self.clean_mode_bg.setChecked(True)
+        self.clean_mode_group.buttonClicked.connect(self.on_clean_mode_changed)
+        clean_mode_layout.addWidget(self.clean_mode_no)
+        clean_mode_layout.addWidget(self.clean_mode_bg)
+        clean_mode_layout.addWidget(self.clean_mode_redraw)
+        clean_layout.addRow("Clean mode:", clean_mode_widget)
 
         opacity_widget = QtWidgets.QWidget()
         opacity_layout = QtWidgets.QHBoxLayout(opacity_widget)
@@ -675,6 +693,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
                     old = self.region_data[index]
                     data.user_text = getattr(old, "user_text", data.user_text)
                     data.clean_region = getattr(old, "clean_region", data.clean_region)
+                    data.redraw_region = getattr(old, "redraw_region", data.redraw_region)
                     data.clean_opacity = getattr(old, "clean_opacity", data.clean_opacity)
                     data.clean_color_override = getattr(old, "clean_color_override", data.clean_color_override)
                     data.clean_shape_selection = getattr(old, "clean_shape_selection", data.clean_shape_selection)
@@ -731,10 +750,13 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             self.translation_text.setPlainText("")
             self.user_text_edit.setText("")
             self.user_text_edit.setEnabled(False)
+            # No region selected -> disable clean mode radios and related controls
             self._ignore_clean_checkbox = True
-            self.clean_checkbox.setChecked(False)
+            self.clean_mode_no.setChecked(True)
+            self.clean_mode_no.setEnabled(False)
+            self.clean_mode_bg.setEnabled(False)
+            self.clean_mode_redraw.setEnabled(False)
             self._ignore_clean_checkbox = False
-            self.clean_checkbox.setEnabled(False)
             self.clean_opacity_slider.setEnabled(False)
             self.clean_opacity_label.setText(f"{self.clean_opacity * 100:.0f}%")
             self._ignore_angle_slider = True
@@ -782,12 +804,23 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.text_bg_color = tuple(getattr(region, "text_bg_color", self.text_bg_color))
         self.update_text_bg_color_button()
 
+        # Set clean mode radios according to region.clean_region
         self._ignore_clean_checkbox = True
-        self.clean_checkbox.setChecked(region.clean_region)
+        # If region.clean_region is True we treat as BG color, else No clean
+        if getattr(region, "clean_region", False):
+            self.clean_mode_bg.setChecked(True)
+        elif getattr(region, "redraw_region", False):
+            self.clean_mode_redraw.setChecked(True)
+        else:
+            self.clean_mode_no.setChecked(True)
+        self.clean_mode_no.setEnabled(True)
+        self.clean_mode_bg.setEnabled(True)
+        self.clean_mode_redraw.setEnabled(True)
         self._ignore_clean_checkbox = False
-        self.clean_checkbox.setEnabled(True)
 
-        self.clean_opacity_slider.setEnabled(True)
+        # Enable/disable clean controls depending on mode (only BG color uses controls)
+        bg_mode = self.clean_mode_bg.isChecked()
+        self.clean_opacity_slider.setEnabled(bg_mode)
         self.clean_opacity_slider.setValue(int(region.clean_opacity * 100))
         self.clean_opacity_label.setText(f"{region.clean_opacity * 100:.0f}%")
         self.update_clean_color_override()
@@ -840,10 +873,25 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.update_region_data(replace_all=False, sort=False)
         self.refresh_ui()
 
-    def on_clean_checkbox_changed(self, state):
+    def on_clean_mode_changed(self, mode):
+        """Handle clean mode radio changes. mode_id: 0=no, 1=bg color, 2=redraw"""
         if self._ignore_clean_checkbox or self.selected_index is None:
             return
-        self.region_data[self.selected_index].clean_region = bool(state)
+        mode_id = self.clean_mode_group.checkedId()
+        # Only BG color triggers cleaning behavior
+        is_bg = (mode_id == 1)
+        self.region_data[self.selected_index].clean_region = is_bg
+        self.region_data[self.selected_index].redraw_region = (mode_id == 2)
+        # Enable/disable other clean controls
+        self.clean_opacity_slider.setEnabled(is_bg)
+        self.clean_select_button.setEnabled(mode_id != 0)
+        self.clean_color_override.setEnabled(is_bg)
+        # If not BG mode, ensure clean select is turned off
+        if not is_bg:
+            try:
+                self.clean_select_button.setChecked(False)
+            except Exception:
+                pass
         self.unsaved_changes = True
         self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
 
@@ -911,8 +959,12 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         region.clean_opacity = default_opacity
         region.clean_color_override = None
         region.clean_region = True
-
-        self.clean_checkbox.setChecked(region.clean_region)
+        region.redraw_region = False
+        # Set radios and controls to reflect reset state (BG color)
+        self.clean_mode_bg.setChecked(True)
+        self.clean_mode_no.setEnabled(True)
+        self.clean_mode_bg.setEnabled(True)
+        self.clean_mode_redraw.setEnabled(True)
         self.clean_opacity_slider.setValue(int(region.clean_opacity * 100))
         self.clean_opacity_label.setText(f"{region.clean_opacity * 100:.0f}%")
         self.update_clean_color_override()
@@ -920,9 +972,13 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
 
     def reset_mode(self, new_mode):
-        if self.mode == "clean_select" and self.selected_index is not None:
-            self.region_data[self.selected_index].clean_region = self.clean_checkbox.isChecked() if self.selected_index is not None else True
-            self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
+        # if self.mode == "clean_select" and self.selected_index is not None:
+        #     # Restore clean radio selection
+        #     mode_id = self.clean_mode_group.checkedId()
+        #     print(f"Restoring clean mode for region {self.selected_index}: {mode_id}")
+        #     self.region_data[self.selected_index].clean_region = mode_id == 1 if self.selected_index is not None else True
+        #     self.region_data[self.selected_index].redraw_region = mode_id == 2 if self.selected_index is not None else False
+        #     self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
         self.mode = new_mode
         try:
             self.add_region_action.setChecked(False)
@@ -978,8 +1034,13 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.preview_widget.set_mode(self.mode)
 
         # Temporarily stop drawing the clean region mask while in free-select mode
+        clean_region = self.region_data[self.selected_index].clean_region
+        redraw_region = self.region_data[self.selected_index].redraw_region
         self.region_data[self.selected_index].clean_region = False
+        self.region_data[self.selected_index].redraw_region = False
         self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
+        self.region_data[self.selected_index].clean_region = clean_region
+        self.region_data[self.selected_index].redraw_region = redraw_region
 
     def on_region_selected(self, row):
         if row < 0:
@@ -1196,6 +1257,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
                     "confidence": region.confidence,
                     "to_update": region.to_update,
                     "clean_region": region.clean_region,
+                    "redraw_region": region.redraw_region,
                     "clean_shape_selection": [list(p) for p in region.clean_shape_selection] if getattr(region, "clean_shape_selection", None) is not None else None,
                     "clean_opacity": region.clean_opacity,
                     "clean_color_override": list(region.clean_color_override) if region.clean_color_override is not None else None,
@@ -1261,6 +1323,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
                     confidence=region.get("confidence"),
                     to_update=region.get("to_update", False),
                     clean_region=region.get("clean_region", True),
+                    redraw_region=region.get("redraw_region", False),
                     clean_opacity=float(region.get("clean_opacity", self.global_defaults.get("clean_opacity", self.clean_opacity))),
                     clean_color_override=tuple(region["clean_color_override"]) if region.get("clean_color_override") is not None else None,
                     clean_shape_selection=[tuple(p) for p in region.get("clean_shape_selection")] if region.get("clean_shape_selection") is not None else None,
@@ -1747,8 +1810,6 @@ class PreviewWidget(QtWidgets.QLabel):
                 idx = self.parent_window.selected_index
                 try:
                     self.parent_window.region_data[idx].clean_shape_selection = list(self.free_select_points)
-                    # ensure region will be cleaned and mark unsaved
-                    self.parent_window.region_data[idx].clean_region = True
                     self.parent_window.unsaved_changes = True
                 except Exception:
                     pass
