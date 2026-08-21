@@ -1001,13 +1001,6 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
 
     def reset_mode(self, new_mode):
-        # if self.mode == "clean_select" and self.selected_index is not None:
-        #     # Restore clean radio selection
-        #     mode_id = self.clean_mode_group.checkedId()
-        #     print(f"Restoring clean mode for region {self.selected_index}: {mode_id}")
-        #     self.region_data[self.selected_index].clean_region = mode_id == 1 if self.selected_index is not None else True
-        #     self.region_data[self.selected_index].redraw_region = mode_id == 2 if self.selected_index is not None else False
-        #     self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
         self.mode = new_mode
         try:
             self.add_region_action.setChecked(False)
@@ -1607,7 +1600,6 @@ class PreviewWidget(QtWidgets.QLabel):
                 return
             self.free_select_points = [img_coords]
             self.free_select_widget_path = None
-            self.setCursor(QtCore.Qt.CrossCursor)
         elif self.mode == "select":
             img_coords = self.widget_to_image_coords(event.position())
             resizing = False
@@ -1680,16 +1672,18 @@ class PreviewWidget(QtWidgets.QLabel):
         return cursor_map.get(edge, QtCore.Qt.ArrowCursor)
 
     def update_cursor_for_current_position(self, event):
-        if self.current_image is None or self.mode != "select":
+        if self.current_image is None:
             return
         img_coords = self.widget_to_image_coords(event.position())
-        if img_coords:
+        if img_coords and self.mode == "select":
             edge = self.detect_edge(img_coords)
             self.hovered_edge = edge
             if edge:
                 self.setCursor(self.get_cursor_for_edge(edge))
             else:
                 self.setCursor(QtCore.Qt.ArrowCursor)
+        elif img_coords and self.mode == "clean_select":
+            self.setCursor(QtCore.Qt.CrossCursor)
         else:
             self.hovered_edge = None
             self.setCursor(QtCore.Qt.ArrowCursor)
@@ -1708,7 +1702,10 @@ class PreviewWidget(QtWidgets.QLabel):
             current_point = event.position()
             self.preview_rect = QtCore.QRect(self.start_point.toPoint(), current_point.toPoint()).normalized()
             self.update()
-        elif self.mode == "clean_select" and self.free_select_points is not None:
+        elif self.mode == "clean_select":
+            self.update_cursor_for_current_position(event)
+            if self.free_select_points is None:
+                return
             img_coords = self.widget_to_image_coords(event.position())
             if img_coords is None:
                 return
