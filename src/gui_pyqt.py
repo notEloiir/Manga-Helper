@@ -989,6 +989,12 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             if self.mode == "new_region":
                 self.enter_select_mode(True)
         self.update_region_details()
+        # Focus the user text editor when a valid region is selected
+        if self.selected_index is not None:
+            try:
+                self.user_text_edit.setFocus()
+            except Exception:
+                pass
         self.preview_widget.set_selected_index(self.selected_index)
         self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
 
