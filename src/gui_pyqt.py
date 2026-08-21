@@ -1275,7 +1275,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         }
 
         with export_path.open("w", encoding="utf-8") as handle:
-            json.dump(export_data, handle, ensure_ascii=False, indent=-1)
+            json.dump(export_data, handle, ensure_ascii=False)
 
         self.set_status(f"Regions exported to {export_path.name}")
 
@@ -1684,8 +1684,8 @@ class PreviewWidget(QtWidgets.QLabel):
             if img_coords is None:
                 return
             last = self.free_select_points[-1]
-            # avoid appending identical consecutive points
-            if img_coords != last:
+            # avoid appending consecutive points too close to each other
+            if abs(img_coords[0] - last[0]) > 5 or abs(img_coords[1] - last[1]) > 5:
                 self.free_select_points.append(img_coords)
             self.update()
         elif self.mode == "select":
