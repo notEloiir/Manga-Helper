@@ -255,24 +255,29 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         # File actions
         open_action = QtGui.QAction("Open Image File", self)
         open_action.triggered.connect(self.open_image)
+        open_action.setShortcut(QtGui.QKeySequence("Ctrl+O"))
         toolbar.addAction(open_action)
 
-        open_action = QtGui.QAction("Open Image URL", self)
-        open_action.triggered.connect(self.open_image_from_url)
-        toolbar.addAction(open_action)
+        url_open_action = QtGui.QAction("Open Image URL", self)
+        url_open_action.triggered.connect(self.open_image_from_url)
+        url_open_action.setShortcut(QtGui.QKeySequence("Ctrl+U"))
+        toolbar.addAction(url_open_action)
 
         save_action = QtGui.QAction("Export Image", self)
         save_action.triggered.connect(self.save_image)
+        save_action.setShortcut(QtGui.QKeySequence("Ctrl+E"))
         toolbar.addAction(save_action)
 
         add_separator()
 
         load_regions_action = QtGui.QAction("Load Regions", self)
         load_regions_action.triggered.connect(self.load_regions)
+        load_regions_action.setShortcut(QtGui.QKeySequence("Ctrl+L"))
         toolbar.addAction(load_regions_action)
 
         save_regions_action = QtGui.QAction("Save Regions", self)
         save_regions_action.triggered.connect(self.save_regions)
+        save_regions_action.setShortcut(QtGui.QKeySequence("Ctrl+S"))
         toolbar.addAction(save_regions_action)
 
         add_separator()
@@ -307,6 +312,17 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.status_bar = QtWidgets.QStatusBar()
         self.setStatusBar(self.status_bar)
         self.set_status("Open an image to begin.")
+
+        # Global keyboard shortcuts
+        self.select_prev_region_shortcut = QtGui.QAction(self)
+        self.select_prev_region_shortcut.setShortcut(QtGui.QKeySequence(QtCore.Qt.CTRL | QtCore.Qt.Key_Up))
+        self.select_prev_region_shortcut.triggered.connect(lambda: self.select_region_delta(-1))
+        self.addAction(self.select_prev_region_shortcut)
+
+        self.select_next_region_shortcut = QtGui.QAction(self)
+        self.select_next_region_shortcut.setShortcut(QtGui.QKeySequence(QtCore.Qt.CTRL | QtCore.Qt.Key_Down))
+        self.select_next_region_shortcut.triggered.connect(lambda: self.select_region_delta(1))
+        self.addAction(self.select_next_region_shortcut)
 
         # Text editing column
         middle_panel = QtWidgets.QWidget()
@@ -372,6 +388,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.clean_select_button.setFixedHeight(30)
         self.clean_select_button.setCheckable(True)
         self.clean_select_button.toggled.connect(self.enter_clean_select_mode)
+        self.clean_select_button.setShortcut(QtGui.QKeySequence("Ctrl+F"))
         clean_layout.addRow(self.clean_select_button)
 
         self.clean_color_override = QtWidgets.QPushButton()
@@ -520,6 +537,18 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         main_layout.addWidget(left_panel, stretch=3)
         main_layout.addWidget(middle_panel, stretch=0.5)
         main_layout.addWidget(right_panel, stretch=1)
+
+    def select_region_delta(self, delta):
+        if not self.region_data:
+            return
+
+        if self.selected_index is None:
+            self.selected_index = 0 if delta > 0 else len(self.region_data) - 1
+        else:
+            self.selected_index = max(0, min(len(self.region_data) - 1, self.selected_index + delta))
+
+        self.region_list.setCurrentRow(self.selected_index)
+        self.on_region_selected(self.selected_index)
 
     def set_status(self, message):
         self.status_bar.showMessage(message)
