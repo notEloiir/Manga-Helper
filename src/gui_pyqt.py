@@ -902,7 +902,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.update_region_data(replace_all=False, sort=False)
         self.refresh_ui()
 
-    def on_clean_mode_changed(self, mode):
+    def on_clean_mode_changed(self):
         """Handle clean mode radio changes. mode_id: 0=no, 1=bg color, 2=redraw"""
         if self._ignore_clean_checkbox or self.selected_index is None:
             return
@@ -1075,6 +1075,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         # Focus the user text editor when a valid region is selected
         if self.selected_index is not None:
             try:
+                self.on_clean_mode_changed()
                 self.user_text_edit.setFocus()
             except Exception:
                 pass
