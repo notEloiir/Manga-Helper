@@ -1403,11 +1403,13 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             x1, y1 = region.bbox[2]
             padding = region.text_padding if hasattr(region, "text_padding") else self.text_padding
             box = (x0 + padding, y0 + padding, x1 - padding, y1 - padding)
-            indent = 5
-            indent_ratio = 1.1
+            indent = 3
+            indent_ratio = 1.3
+            width_ratio = 1.05
+            bg_dilation_adjusted = text_bg_dilation + (region.font_size // 30)
 
             # Per-region font
-            font = self.create_font_for(getattr(region, "font_family", None), getattr(region, "font_size", None))
+            font = self.create_font_for(region.font_family, region.font_size)
 
             # Check if horizontal center alignment is enabled
             align_center = getattr(region, "text_align_center", self.text_align_center)
@@ -1423,16 +1425,12 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
                     bbox = draw.textbbox((0, 0), line, font=font)
                     line_bboxes.append(bbox)
                 
-                line_widths = [bbox[2] - bbox[0] for bbox in line_bboxes]
+                line_widths = [int((bbox[2] - bbox[0]) * width_ratio) for bbox in line_bboxes]
                 line_heights = [int((bbox[3] - bbox[1]) * indent_ratio + indent) for bbox in line_bboxes]
                 normal_height = int(np.quantile(line_heights, 0.75)) if line_heights else 0
                 
                 max_width = max(line_widths) if line_widths else 0
                 total_height = normal_height * len(lines)
-                
-                # Add spacing between lines (1 pixel per line gap)
-                if len(lines) > 1:
-                    total_height += (len(lines) - 1) * 1
                 
                 # Create text image with max_width
                 text_image = Image.new("RGBA", (max_width + 4, total_height + 4), (0, 0, 0, 0))
@@ -1441,18 +1439,18 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
                 text_color_with_alpha = tc + (255,)
                 
                 # Draw each line centered within max_width
-                y_pos = 2
+                y_pos = indent
                 for line in lines:
                     line_bbox = draw.textbbox((0, 0), line, font=font)
-                    line_width = line_bbox[2] - line_bbox[0]
+                    line_width = int((line_bbox[2] - line_bbox[0]) * width_ratio)
                     # Center this line within max_width
                     x_pos = 2 + (max_width - line_width) // 2
                     temp_draw.text((x_pos, y_pos), line, fill=text_color_with_alpha, font=font)
-                    y_pos += normal_height + 1
+                    y_pos += normal_height
             else:
                 # Single line or align_center disabled: use original behavior
                 text_bbox = draw.textbbox((0, 0), text, font=font)
-                text_width = text_bbox[2] - text_bbox[0]
+                text_width = int((text_bbox[2] - text_bbox[0]) * width_ratio)
                 text_height = int((text_bbox[3] - text_bbox[1]) * indent_ratio + indent)
                 text_image = Image.new("RGBA", (text_width + 4, text_height + 4), (0, 0, 0, 0))
                 temp_draw = ImageDraw.Draw(text_image)
@@ -1478,7 +1476,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
                 py = box[1]
 
             # Draw background behind rotated text using dilated alpha mask.
-            dilation_filter = ImageFilter.MaxFilter(1 + 2 * text_bg_dilation)
+            dilation_filter = ImageFilter.MaxFilter(1 + 2 * bg_dilation_adjusted)
             dilated_mask = rotated_mask.filter(dilation_filter)
             bg = tuple(getattr(region, "text_bg_color", self.text_bg_color))
             bg_color_with_alpha = bg + (255,)
