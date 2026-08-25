@@ -3,7 +3,7 @@
 import sys
 from pathlib import Path
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageChops
 
 from src.region_data import RegionData
 from src.inpainting import inpaint_regions
@@ -210,8 +210,24 @@ def clean_image(image, text_regions, opacity=0.8):
             if res is not None:
                 final_crop, (x_off, y_off) = res
                 # Paste result directly onto the image (preserve alpha)
-                final_rgba = final_crop.convert("RGBA")
-                image.paste(final_rgba, (x_off, y_off), final_rgba)
+                # But only for redrawn polygons to not degrade image quality
+                patch = final_crop.convert("RGBA")
+                poly_mask = Image.new("L", patch.size, 0)
+                draw_mask = ImageDraw.Draw(poly_mask)
+
+                for poly in redraw_polygons:
+                    local_poly = [
+                        (x - x_off, y - y_off)
+                        for x, y in poly
+                    ]
+                    draw_mask.polygon(local_poly, fill=255)
+
+                # Respect both polygon selection and patch alpha
+                alpha = patch.getchannel("A")
+                final_mask = ImageChops.multiply(alpha, poly_mask)
+
+                image.paste(patch, (x_off, y_off), final_mask)
+
         except Exception as e:
             print(f"Error during inpainting: {e}", file=sys.stderr)
 
