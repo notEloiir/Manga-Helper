@@ -95,6 +95,9 @@ def sample_background_color(image_array, polygon, border_px=5):
         else:
             avg_color = np.mean(sampled[:, :3], axis=0).astype(int)
 
+        if all(int(c) > 230 for c in avg_color):
+            return (255, 255, 255)
+
         return tuple(int(c) for c in avg_color)
 
     except Exception as e:
