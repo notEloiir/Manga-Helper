@@ -9,6 +9,23 @@ from src.region_data import RegionData
 from src.inpainting import inpaint_regions
 
 
+# Booyer-Moore
+def majority_element(arr):
+    candidate = None
+    count = 0
+
+    for x in arr:
+        if count == 0:
+            candidate = x
+            count = 1
+        elif (x == candidate).all():
+            count += 1
+        else:
+            count -= 1
+
+    return candidate
+
+
 def sample_background_color(image_array, polygon, border_px=5):
     """Sample a representative background color for a (possibly non-rectangular) polygon.
 
@@ -82,21 +99,14 @@ def sample_background_color(image_array, polygon, border_px=5):
             return (255, 255, 255)
 
         sampled = np.concatenate([s.reshape(-1, s.shape[-1]) for s in samples])
+        sample_size = sampled.shape[0]
 
-        brightness = np.mean(sampled[:, :3], axis=1)
-        weights = np.where(brightness < 50, 0.2, 1.0)
+        majority_color = majority_element(sampled[:, :3])
+        majority_size = np.count_nonzero(sampled[:, :3] == majority_color)
+        if majority_color is not None and majority_size >= sample_size / 2:
+            return tuple(int(c) for c in majority_color)
 
-        weighted_samples = sampled[:, :3] * weights[:, np.newaxis]
-        weighted_sum = np.sum(weighted_samples, axis=0)
-        weight_total = np.sum(weights)
-
-        if weight_total > 0:
-            avg_color = (weighted_sum / weight_total).astype(int)
-        else:
-            avg_color = np.mean(sampled[:, :3], axis=0).astype(int)
-
-        if all(int(c) > 230 for c in avg_color):
-            return (255, 255, 255)
+        avg_color = np.mean(sampled[:, :3], axis=0).astype(int)
 
         return tuple(int(c) for c in avg_color)
 
