@@ -1406,6 +1406,8 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             box = (x0 + padding, y0 + padding, x1 - padding, y1 - padding)
             indent = 3
             indent_ratio = 1.3
+            border = 3
+            border_ratio = 1.1
             width_ratio = 1.05
             bg_dilation_adjusted = text_bg_dilation + (region.font_size // 30)
 
@@ -1430,11 +1432,11 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
                 line_heights = [int((bbox[3] - bbox[1]) * indent_ratio + indent) for bbox in line_bboxes]
                 normal_height = int(np.quantile(line_heights, 0.75)) if line_heights else 0
                 
-                max_width = max(line_widths) if line_widths else 0
-                total_height = normal_height * len(lines)
+                max_width = int(max(line_widths) * border_ratio) + border if line_widths else 0
+                total_height = int(normal_height * len(lines) * border_ratio) + border
                 
                 # Create text image with max_width
-                text_image = Image.new("RGBA", (max_width + 4, total_height + 4), (0, 0, 0, 0))
+                text_image = Image.new("RGBA", (max_width, total_height), (0, 0, 0, 0))
                 temp_draw = ImageDraw.Draw(text_image)
                 tc = tuple(getattr(region, "text_color", self.text_color))
                 text_color_with_alpha = tc + (255,)
@@ -1451,9 +1453,9 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             else:
                 # Single line or align_center disabled: use original behavior
                 text_bbox = draw.textbbox((0, 0), text, font=font)
-                text_width = int((text_bbox[2] - text_bbox[0]) * width_ratio)
-                text_height = int((text_bbox[3] - text_bbox[1]) * indent_ratio + indent)
-                text_image = Image.new("RGBA", (text_width + 4, text_height + 4), (0, 0, 0, 0))
+                text_width = int((text_bbox[2] - text_bbox[0]) * width_ratio * border_ratio + border + indent)
+                text_height = int((text_bbox[3] - text_bbox[1]) * indent_ratio * border_ratio + border + indent)
+                text_image = Image.new("RGBA", (text_width, text_height), (0, 0, 0, 0))
                 temp_draw = ImageDraw.Draw(text_image)
                 tc = tuple(getattr(region, "text_color", self.text_color))
                 text_color_with_alpha = tc + (255,)
