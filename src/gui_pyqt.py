@@ -9,13 +9,13 @@ import shutil
 import numpy as np
 import re
 
-from dataclasses import dataclass
 import json
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from PySide6 import QtCore, QtGui, QtWidgets
 import os
 
-from src.image_cleaner import clean_image
+from src.image_cleaner import clean_image, region_bg_color
+from src.region_data import RegionData
 from src.ocr import (
     detect_text_regions,
     sort_text_regions,
@@ -30,29 +30,6 @@ from src.text_processor import (
 )
 
 
-@dataclass
-class RegionData:
-    bbox: list
-    ocr_text: str = ""
-    hiragana: str = ""
-    romaji: str = ""
-    translation: str = ""
-    user_text: str = ""
-    orientation: str = "horizontal"
-    confidence: float | None = None
-    to_update: bool = False
-    clean_region: bool = True
-    # Per-region text settings
-    font_family: str = ""
-    font_size: int = 24
-    text_angle: float = 0.0
-    text_center: bool = True
-    text_align_center: bool = True
-    text_padding: int = -16
-    text_color: tuple = (0, 0, 0)
-    text_bg_color: tuple = (255, 255, 255)
-
-
 class MangaHelperGUI(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
@@ -61,6 +38,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
 
         self.current_image_path = None
         self.original_image = None
+        self.image_array = None
         self.region_data = []
         self.selected_index = None
         self.unsaved_changes = False
@@ -76,6 +54,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.text_center = True
         self.text_align_center = True
         self.text_padding = -16
+        self.clean_opacity = 0.9
         self.text_color = (0, 0, 0)  # Black
         self.text_bg_color = (255, 255, 255)  # White
 
@@ -188,6 +167,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             "font_family": self.font_family,
             "font_size": self.font_size,
             "text_padding": self.text_padding,
+            "clean_opacity": self.clean_opacity,
             "text_color": list(self.text_color),
             "text_bg_color": list(self.text_bg_color),
             "window_width": self.window_width,
@@ -221,6 +201,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.text_center = True
         self.text_align_center = True
         self.text_padding = int(self.global_defaults.get("text_padding", self.text_padding))
+        self.clean_opacity = float(self.global_defaults.get("clean_opacity", self.clean_opacity))
         self.text_color = tuple(self.global_defaults.get("text_color", list(self.text_color)))
         self.text_bg_color = tuple(self.global_defaults.get("text_bg_color", list(self.text_bg_color)))
 
@@ -230,6 +211,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             data["window_width"] = self.window_width
             data["window_height"] = self.window_height
             data["fullscreen"] = self.fullscreen
+            data["clean_opacity"] = float(self.clean_opacity)
             # ensure serializable
             data["text_color"] = list(data.get("text_color", self.text_color))
             data["text_bg_color"] = list(data.get("text_bg_color", self.text_bg_color))
@@ -273,24 +255,29 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         # File actions
         open_action = QtGui.QAction("Open Image File", self)
         open_action.triggered.connect(self.open_image)
+        open_action.setShortcut(QtGui.QKeySequence("Ctrl+O"))
         toolbar.addAction(open_action)
 
-        open_action = QtGui.QAction("Open Image URL", self)
-        open_action.triggered.connect(self.open_image_from_url)
-        toolbar.addAction(open_action)
+        url_open_action = QtGui.QAction("Open Image URL", self)
+        url_open_action.triggered.connect(self.open_image_from_url)
+        url_open_action.setShortcut(QtGui.QKeySequence("Ctrl+U"))
+        toolbar.addAction(url_open_action)
 
         save_action = QtGui.QAction("Export Image", self)
         save_action.triggered.connect(self.save_image)
+        save_action.setShortcut(QtGui.QKeySequence("Ctrl+E"))
         toolbar.addAction(save_action)
 
         add_separator()
 
         load_regions_action = QtGui.QAction("Load Regions", self)
         load_regions_action.triggered.connect(self.load_regions)
+        load_regions_action.setShortcut(QtGui.QKeySequence("Ctrl+L"))
         toolbar.addAction(load_regions_action)
 
         save_regions_action = QtGui.QAction("Save Regions", self)
         save_regions_action.triggered.connect(self.save_regions)
+        save_regions_action.setShortcut(QtGui.QKeySequence("Ctrl+S"))
         toolbar.addAction(save_regions_action)
 
         add_separator()
@@ -304,7 +291,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
 
         self.add_region_action = QtGui.QAction("Add Region", self)
         self.add_region_action.setCheckable(True)
-        self.add_region_action.toggled.connect(self.toggle_add_region_mode)
+        self.add_region_action.toggled.connect(self.enter_add_region_mode)
         toolbar.addAction(self.add_region_action)
 
         action_group = QtGui.QActionGroup(self)
@@ -326,6 +313,17 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.setStatusBar(self.status_bar)
         self.set_status("Open an image to begin.")
 
+        # Global keyboard shortcuts
+        self.select_prev_region_shortcut = QtGui.QAction(self)
+        self.select_prev_region_shortcut.setShortcut(QtGui.QKeySequence(QtCore.Qt.CTRL | QtCore.Qt.Key_Up))
+        self.select_prev_region_shortcut.triggered.connect(lambda: self.select_region_delta(-1))
+        self.addAction(self.select_prev_region_shortcut)
+
+        self.select_next_region_shortcut = QtGui.QAction(self)
+        self.select_next_region_shortcut.setShortcut(QtGui.QKeySequence(QtCore.Qt.CTRL | QtCore.Qt.Key_Down))
+        self.select_next_region_shortcut.triggered.connect(lambda: self.select_region_delta(1))
+        self.addAction(self.select_next_region_shortcut)
+
         # Text editing column
         middle_panel = QtWidgets.QWidget()
         middle_layout = QtWidgets.QVBoxLayout(middle_panel)
@@ -343,12 +341,71 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.user_text_edit.textChanged.connect(lambda: self.on_user_text_changed(self.user_text_edit.toPlainText()))
         text_edit_layout.addWidget(self.user_text_edit)
 
-        self.clean_checkbox = QtWidgets.QCheckBox("Clean region")
-        self.clean_checkbox.stateChanged.connect(self.on_clean_checkbox_changed)
-        self.clean_checkbox.setEnabled(False)
-        text_edit_layout.addWidget(self.clean_checkbox)
-
         middle_layout.addWidget(text_edit_group)
+
+        # Clean settings group
+        clean_group = QtWidgets.QGroupBox("Clean Settings")
+        clean_layout = QtWidgets.QFormLayout(clean_group)
+
+        # Clean mode radio buttons: No clean / BG color / Redraw
+        clean_mode_widget = QtWidgets.QWidget()
+        clean_mode_layout = QtWidgets.QHBoxLayout(clean_mode_widget)
+        clean_mode_layout.setContentsMargins(0, 0, 0, 0)
+        self.clean_mode_no = QtWidgets.QRadioButton("No clean")
+        self.clean_mode_bg = QtWidgets.QRadioButton("BG color")
+        self.clean_mode_redraw = QtWidgets.QRadioButton("Redraw")
+        self.clean_mode_group = QtWidgets.QButtonGroup(self)
+        self.clean_mode_group.addButton(self.clean_mode_no, 0)
+        self.clean_mode_group.addButton(self.clean_mode_bg, 1)
+        self.clean_mode_group.addButton(self.clean_mode_redraw, 2)
+        # default disabled until a region is selected
+        self.clean_mode_no.setEnabled(False)
+        self.clean_mode_bg.setEnabled(False)
+        self.clean_mode_redraw.setEnabled(False)
+        # default selection is BG color
+        self.clean_mode_bg.setChecked(True)
+        self.clean_mode_group.buttonClicked.connect(self.on_clean_mode_changed)
+        clean_mode_layout.addWidget(self.clean_mode_no)
+        clean_mode_layout.addWidget(self.clean_mode_bg)
+        clean_mode_layout.addWidget(self.clean_mode_redraw)
+        clean_layout.addRow("Clean mode:", clean_mode_widget)
+
+        opacity_widget = QtWidgets.QWidget()
+        opacity_layout = QtWidgets.QHBoxLayout(opacity_widget)
+        opacity_layout.setContentsMargins(0, 0, 0, 0)
+        self.clean_opacity_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+        self.clean_opacity_slider.setRange(0, 100)
+        self.clean_opacity_slider.setValue(int(self.clean_opacity * 100))
+        self.clean_opacity_slider.setEnabled(False)
+        self.clean_opacity_slider.valueChanged.connect(self.on_clean_opacity_changed)
+        opacity_layout.addWidget(self.clean_opacity_slider)
+        self.clean_opacity_label = QtWidgets.QLabel(f"{self.clean_opacity * 100:.0f}%")
+        self.clean_opacity_label.setFixedWidth(40)
+        opacity_layout.addWidget(self.clean_opacity_label)
+        clean_layout.addRow("Opacity:", opacity_widget)
+
+        self.clean_select_button = QtWidgets.QPushButton("Clean Free Select")
+        self.clean_select_button.setFixedHeight(30)
+        self.clean_select_button.setCheckable(True)
+        self.clean_select_button.toggled.connect(self.enter_clean_select_mode)
+        self.clean_select_button.setShortcut(QtGui.QKeySequence("Ctrl+F"))
+        clean_layout.addRow(self.clean_select_button)
+
+        self.clean_color_override = QtWidgets.QPushButton()
+        self.clean_color_override.setFixedHeight(30)
+        self.clean_color_override.setToolTip("Click to override clean color")
+        self.clean_color_override.clicked.connect(self.on_clean_color_clicked)
+        self.update_clean_color_override()
+        clean_layout.addRow("Clean Color:", self.clean_color_override)
+
+        self.reset_clean_button = QtWidgets.QPushButton("Reset Clean Settings")
+        self.reset_clean_button.setFixedHeight(30)
+        self.reset_clean_button.setToolTip("Reset clean settings to the current global defaults")
+        self.reset_clean_button.clicked.connect(self.reset_clean_settings)
+        clean_layout.addRow(self.reset_clean_button)
+
+        middle_layout.addWidget(clean_group)
+        # End of clean settings group
 
         settings_group = QtWidgets.QGroupBox("Text Settings")
         settings_layout = QtWidgets.QFormLayout(settings_group)
@@ -456,16 +513,42 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
 
         right_layout.addWidget(region_buttons)
 
-        details_group = QtWidgets.QGroupBox("Region Details")
-        details_layout = QtWidgets.QVBoxLayout(details_group)
-        self.detail_text = QtWidgets.QTextEdit(readOnly=True)
-        details_layout.addWidget(self.detail_text)
-        right_layout.addWidget(details_group)
+        self.original_text = QtWidgets.QTextEdit(readOnly=True)
+        self.hiragana_text = QtWidgets.QTextEdit(readOnly=True)
+        self.romaji_text = QtWidgets.QTextEdit(readOnly=True)
+        self.translation_text = QtWidgets.QTextEdit(readOnly=True)
+
+        self.original_text.setMaximumHeight(100)
+        self.hiragana_text.setMaximumHeight(100)
+        self.romaji_text.setMaximumHeight(100)
+        self.translation_text.setMaximumHeight(100)
+
+        right_layout.addWidget(QtWidgets.QLabel("Original:"))
+        right_layout.addWidget(self.original_text)
+        right_layout.addWidget(QtWidgets.QLabel("Hiragana:"))
+        right_layout.addWidget(self.hiragana_text)
+        right_layout.addWidget(QtWidgets.QLabel("Romaji:"))
+        right_layout.addWidget(self.romaji_text)
+        right_layout.addWidget(QtWidgets.QLabel("Translation:"))
+        right_layout.addWidget(self.translation_text)
+
         right_layout.addStretch(1)
 
         main_layout.addWidget(left_panel, stretch=3)
         main_layout.addWidget(middle_panel, stretch=0.5)
         main_layout.addWidget(right_panel, stretch=1)
+
+    def select_region_delta(self, delta):
+        if not self.region_data:
+            return
+
+        if self.selected_index is None:
+            self.selected_index = 0 if delta > 0 else len(self.region_data) - 1
+        else:
+            self.selected_index = max(0, min(len(self.region_data) - 1, self.selected_index + delta))
+
+        self.region_list.setCurrentRow(self.selected_index)
+        self.on_region_selected(self.selected_index)
 
     def set_status(self, message):
         self.status_bar.showMessage(message)
@@ -531,6 +614,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
 
         self.current_image_path = Path(path)
         self.original_image = image
+        self.image_array = np.array(image)
         self.region_data = []
         self.selected_index = None
         self.unsaved_changes = False
@@ -622,6 +706,8 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
                 confidence=region[2] if len(region) > 2 else None,
                 to_update=False,
                 clean_region=True,
+                clean_opacity=float(self.global_defaults.get("clean_opacity", self.clean_opacity)),
+                clean_color_override=None,
                 font_family=self.global_defaults.get("font_family", self.font_family),
                 font_size=int(self.global_defaults.get("font_size", self.font_size)),
                 text_center=bool(self.global_defaults.get("text_center", self.text_center)),
@@ -636,6 +722,10 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
                     old = self.region_data[index]
                     data.user_text = getattr(old, "user_text", data.user_text)
                     data.clean_region = getattr(old, "clean_region", data.clean_region)
+                    data.redraw_region = getattr(old, "redraw_region", data.redraw_region)
+                    data.clean_opacity = getattr(old, "clean_opacity", data.clean_opacity)
+                    data.clean_color_override = getattr(old, "clean_color_override", data.clean_color_override)
+                    data.clean_shape_selection = getattr(old, "clean_shape_selection", data.clean_shape_selection)
                     data.text_angle = getattr(old, "text_angle", 0.0)
                     data.font_family = getattr(old, "font_family", data.font_family)
                     data.font_size = getattr(old, "font_size", data.font_size)
@@ -683,13 +773,21 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
 
     def update_region_details(self):
         if self.selected_index is None or self.selected_index >= len(self.region_data):
-            self.detail_text.setPlainText("No text region selected.")
+            self.original_text.setPlainText("")
+            self.hiragana_text.setPlainText("")
+            self.romaji_text.setPlainText("")
+            self.translation_text.setPlainText("")
             self.user_text_edit.setText("")
             self.user_text_edit.setEnabled(False)
+            # No region selected -> disable clean mode radios and related controls
             self._ignore_clean_checkbox = True
-            self.clean_checkbox.setChecked(False)
+            self.clean_mode_no.setChecked(True)
+            self.clean_mode_no.setEnabled(False)
+            self.clean_mode_bg.setEnabled(False)
+            self.clean_mode_redraw.setEnabled(False)
             self._ignore_clean_checkbox = False
-            self.clean_checkbox.setEnabled(False)
+            self.clean_opacity_slider.setEnabled(False)
+            self.clean_opacity_label.setText(f"{self.clean_opacity * 100:.0f}%")
             self._ignore_angle_slider = True
             self.angle_slider.setValue(0)
             self.angle_label.setText("0°")
@@ -708,17 +806,10 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             region.text_padding = int(self.global_defaults.get("text_padding", region.text_padding))
             region.text_color = tuple(self.global_defaults.get("text_color", list(region.text_color)))
             region.text_bg_color = tuple(self.global_defaults.get("text_bg_color", list(region.text_bg_color)))
-        lines = [
-            "Japanese:",
-            region.ocr_text,
-            "Hiragana:",
-            region.hiragana,
-            "Romaji:",
-            region.romaji,
-            "English:",
-            region.translation,
-        ]
-        self.detail_text.setPlainText("\n".join(lines))
+        self.original_text.setPlainText(region.ocr_text)
+        self.hiragana_text.setPlainText(region.hiragana)
+        self.romaji_text.setPlainText(region.romaji)
+        self.translation_text.setPlainText(region.translation)
         self.user_text_edit.setEnabled(True)
         self._ignore_user_text = True
         self.user_text_edit.setText(region.user_text)
@@ -742,10 +833,26 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.text_bg_color = tuple(getattr(region, "text_bg_color", self.text_bg_color))
         self.update_text_bg_color_button()
 
+        # Set clean mode radios according to region.clean_region
         self._ignore_clean_checkbox = True
-        self.clean_checkbox.setChecked(region.clean_region)
+        # If region.clean_region is True we treat as BG color, else No clean
+        if getattr(region, "clean_region", False):
+            self.clean_mode_bg.setChecked(True)
+        elif getattr(region, "redraw_region", False):
+            self.clean_mode_redraw.setChecked(True)
+        else:
+            self.clean_mode_no.setChecked(True)
+        self.clean_mode_no.setEnabled(True)
+        self.clean_mode_bg.setEnabled(True)
+        self.clean_mode_redraw.setEnabled(True)
         self._ignore_clean_checkbox = False
-        self.clean_checkbox.setEnabled(True)
+
+        # Enable/disable clean controls depending on mode (only BG color uses controls)
+        bg_mode = self.clean_mode_bg.isChecked()
+        self.clean_opacity_slider.setEnabled(bg_mode)
+        self.clean_opacity_slider.setValue(int(region.clean_opacity * 100))
+        self.clean_opacity_label.setText(f"{region.clean_opacity * 100:.0f}%")
+        self.update_clean_color_override()
 
         self._ignore_angle_slider = True
         self.angle_slider.setValue(int(region.text_angle))
@@ -795,38 +902,167 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.update_region_data(replace_all=False, sort=False)
         self.refresh_ui()
 
-    def on_clean_checkbox_changed(self, state):
+    def on_clean_mode_changed(self):
+        """Handle clean mode radio changes. mode_id: 0=no, 1=bg color, 2=redraw"""
         if self._ignore_clean_checkbox or self.selected_index is None:
             return
-        self.region_data[self.selected_index].clean_region = bool(state)
+        mode_id = self.clean_mode_group.checkedId()
+        # Only BG color triggers cleaning behavior
+        is_bg = (mode_id == 1)
+        self.region_data[self.selected_index].clean_region = is_bg
+        self.region_data[self.selected_index].redraw_region = (mode_id == 2)
+        # Enable/disable other clean controls
+        self.clean_opacity_slider.setEnabled(is_bg)
+        self.clean_select_button.setEnabled(mode_id != 0)
+        self.clean_color_override.setEnabled(is_bg)
+        # If not BG mode, ensure clean select is turned off
+        if not is_bg:
+            try:
+                self.clean_select_button.setChecked(False)
+            except Exception:
+                pass
         self.unsaved_changes = True
         self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
 
-    def enter_add_region_mode(self):
-        if self.original_image is None:
-            QtWidgets.QMessageBox.information(self, "Open Image", "Please open an image before adding a new region.")
-            self.add_region_action.setChecked(False)
+    def on_clean_opacity_changed(self, value):
+        if self.selected_index is None:
             return
-        self.mode = "new_region"
-        self.add_region_action.setChecked(True)
-        self.set_status("Drag on the preview to draw a new text region.")
-        self.preview_widget.set_mode(self.mode)
+        opacity = max(0.0, min(1.0, value / 100.0))
+        self.region_data[self.selected_index].clean_opacity = opacity
+        self.clean_opacity_label.setText(f"{value}%")
+        self.unsaved_changes = True
+        self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
+        self.global_defaults.update({
+            "clean_opacity": opacity,
+        })
+        self.save_defaults()
 
-    def enter_select_mode(self):
-        self.mode = "select"
+    def update_clean_color_override(self):
+        if self.selected_index is None or self.selected_index >= len(self.region_data):
+            self.clean_color_override.setText("Default")
+            self.clean_color_override.setStyleSheet("background-color: rgba(180, 180, 180, 0.35); color: #111111;")
+            return
+
+        default_color = region_bg_color(self.region_data[self.selected_index], self.image_array)
+        override = getattr(self.region_data[self.selected_index], "clean_color_override", None)
+        if override is None:
+            self.clean_color_override.setText("Default")
+            self.clean_color_override.setStyleSheet(f"background-color: rgb({default_color[0]}, {default_color[1]}, {default_color[2]}); color: #111111;")
+            return
+
+        r, g, b = override
+        self.clean_color_override.setText("Custom")
+        self.clean_color_override.setStyleSheet(
+            f"background-color: rgb({r}, {g}, {b}); color: rgb({255-r}, {255-g}, {255-b});"
+        )
+
+    def on_clean_color_clicked(self):
+        if self.selected_index is None or self.selected_index >= len(self.region_data):
+            return
+
+        default_color = region_bg_color(self.region_data[self.selected_index], self.image_array)
+        current = getattr(self.region_data[self.selected_index], "clean_color_override", None) or default_color
+        color = QtWidgets.QColorDialog.getColor(
+            QtGui.QColor(*current),
+            self,
+            "Select Clean Color Override"
+        )
+        if not color.isValid():
+            return
+
+        self.region_data[self.selected_index].clean_color_override = (
+            color.red(),
+            color.green(),
+            color.blue(),
+        )
+        self.unsaved_changes = True
+        self.update_clean_color_override()
+        self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
+
+    def reset_clean_settings(self):
+        if self.selected_index is None or self.selected_index >= len(self.region_data):
+            return
+
+        region = self.region_data[self.selected_index]
+        default_opacity = float(self.global_defaults.get("clean_opacity", self.clean_opacity))
+        region.clean_opacity = default_opacity
+        region.clean_color_override = None
+        region.clean_region = True
+        region.redraw_region = False
+        # Set radios and controls to reflect reset state (BG color)
+        self.clean_mode_bg.setChecked(True)
+        self.clean_mode_no.setEnabled(True)
+        self.clean_mode_bg.setEnabled(True)
+        self.clean_mode_redraw.setEnabled(True)
+        self.clean_opacity_slider.setValue(int(region.clean_opacity * 100))
+        self.clean_opacity_label.setText(f"{region.clean_opacity * 100:.0f}%")
+        self.update_clean_color_override()
+        self.unsaved_changes = True
+        self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
+
+    def reset_mode(self, new_mode):
+        self.mode = new_mode
+        try:
+            self.add_region_action.setChecked(False)
+        except Exception:
+            pass
+        try:
+            self.clean_select_button.setChecked(False)
+        except Exception:
+            pass
+        try:
+            self.select_action.setChecked(False)
+        except Exception:
+            pass
+
+    def enter_select_mode(self, checked):
+        # Uncheck other mode controls
+        mode = "select"
+        if not checked or self.mode == mode:
+            return
+        self.reset_mode(mode)
         self.select_action.setChecked(True)
         self.set_status("Selection mode enabled.")
         self.preview_widget.set_mode(self.mode)
 
-    def toggle_add_region_mode(self, checked):
-        if checked:
-            self.mode = "new_region"
-            self.set_status("Drag on the preview to draw a new text region.")
-        else:
-            self.mode = "select"
-            self.select_action.setChecked(True)
-            self.set_status("Selection mode enabled.")
+    def enter_add_region_mode(self, checked):
+        if self.original_image is None:
+            QtWidgets.QMessageBox.information(self, "Open Image", "Please open an image before adding a new region.")
+            return
+        # uncheck other mode controls
+        mode = "new_region"
+        if not checked or self.mode == mode:
+            return
+        self.reset_mode(mode)
+        self.add_region_action.setChecked(True)
+        self.set_status("Drag on the preview to draw a new text region.")
         self.preview_widget.set_mode(self.mode)
+
+    def enter_clean_select_mode(self, checked):
+        """Toggle free-form clean selection (lasso) mode."""
+        if self.original_image is None:
+            QtWidgets.QMessageBox.information(self, "Open Image", "Please open an image before adding a new region.")
+            return
+        if self.selected_index is None:
+            QtWidgets.QMessageBox.information(self, "Select Region", "Please select a region before free-selecting a clean area.")
+            return
+        # Uncheck other mode controls
+        mode = "clean_select"
+        if not checked or self.mode == mode:
+            return
+        self.reset_mode(mode)
+        self.clean_select_button.setChecked(True)
+        self.set_status("Draw a free-form selection on the preview to set the clean area for the selected region.")
+        self.preview_widget.set_mode(self.mode)
+
+        # Temporarily stop drawing the clean region mask while in free-select mode
+        clean_region = self.region_data[self.selected_index].clean_region
+        redraw_region = self.region_data[self.selected_index].redraw_region
+        self.region_data[self.selected_index].clean_region = False
+        self.region_data[self.selected_index].redraw_region = False
+        self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
+        self.region_data[self.selected_index].clean_region = clean_region
+        self.region_data[self.selected_index].redraw_region = redraw_region
 
     def on_region_selected(self, row):
         if row < 0:
@@ -834,8 +1070,15 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         else:
             self.selected_index = row
             if self.mode == "new_region":
-                self.enter_select_mode()
+                self.enter_select_mode(True)
         self.update_region_details()
+        # Focus the user text editor when a valid region is selected
+        if self.selected_index is not None:
+            try:
+                self.on_clean_mode_changed()
+                self.user_text_edit.setFocus()
+            except Exception:
+                pass
         self.preview_widget.set_selected_index(self.selected_index)
         self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
 
@@ -987,11 +1230,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             return
 
         # Apply the modifications to original image now
-        image_to_save = clean_image(
-            self.original_image,
-            [region.bbox for region in self.region_data if region.clean_region],
-            opacity=0.9,
-        )
+        image_to_save = clean_image(self.original_image, self.region_data, opacity=0.9)
         image_to_save = self.render_user_text_overlay(image_to_save)
 
         output_path = Path(path)
@@ -1041,6 +1280,10 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
                     "confidence": region.confidence,
                     "to_update": region.to_update,
                     "clean_region": region.clean_region,
+                    "redraw_region": region.redraw_region,
+                    "clean_shape_selection": [list(p) for p in region.clean_shape_selection] if getattr(region, "clean_shape_selection", None) is not None else None,
+                    "clean_opacity": region.clean_opacity,
+                    "clean_color_override": list(region.clean_color_override) if region.clean_color_override is not None else None,
                     "font_family": region.font_family,
                     "font_size": region.font_size,
                     "text_angle": region.text_angle,
@@ -1055,7 +1298,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         }
 
         with export_path.open("w", encoding="utf-8") as handle:
-            json.dump(export_data, handle, ensure_ascii=False, indent=2)
+            json.dump(export_data, handle, ensure_ascii=False)
 
         self.set_status(f"Regions exported to {export_path.name}")
 
@@ -1103,6 +1346,10 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
                     confidence=region.get("confidence"),
                     to_update=region.get("to_update", False),
                     clean_region=region.get("clean_region", True),
+                    redraw_region=region.get("redraw_region", False),
+                    clean_opacity=float(region.get("clean_opacity", self.global_defaults.get("clean_opacity", self.clean_opacity))),
+                    clean_color_override=tuple(region["clean_color_override"]) if region.get("clean_color_override") is not None else None,
+                    clean_shape_selection=[tuple(p) for p in region.get("clean_shape_selection")] if region.get("clean_shape_selection") is not None else None,
                     font_family=region.get("font_family", self.font_family),
                     font_size=int(region.get("font_size", self.font_size)),
                     text_angle=float(region.get("text_angle", 0.0)),
@@ -1157,11 +1404,13 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             x1, y1 = region.bbox[2]
             padding = region.text_padding if hasattr(region, "text_padding") else self.text_padding
             box = (x0 + padding, y0 + padding, x1 - padding, y1 - padding)
-            indent = 5
-            indent_ratio = 1.1
+            indent = 3
+            indent_ratio = 1.3
+            width_ratio = 1.05
+            bg_dilation_adjusted = text_bg_dilation + (region.font_size // 30)
 
             # Per-region font
-            font = self.create_font_for(getattr(region, "font_family", None), getattr(region, "font_size", None))
+            font = self.create_font_for(region.font_family, region.font_size)
 
             # Check if horizontal center alignment is enabled
             align_center = getattr(region, "text_align_center", self.text_align_center)
@@ -1177,16 +1426,12 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
                     bbox = draw.textbbox((0, 0), line, font=font)
                     line_bboxes.append(bbox)
                 
-                line_widths = [bbox[2] - bbox[0] for bbox in line_bboxes]
+                line_widths = [int((bbox[2] - bbox[0]) * width_ratio) for bbox in line_bboxes]
                 line_heights = [int((bbox[3] - bbox[1]) * indent_ratio + indent) for bbox in line_bboxes]
                 normal_height = int(np.quantile(line_heights, 0.75)) if line_heights else 0
                 
                 max_width = max(line_widths) if line_widths else 0
                 total_height = normal_height * len(lines)
-                
-                # Add spacing between lines (1 pixel per line gap)
-                if len(lines) > 1:
-                    total_height += (len(lines) - 1) * 1
                 
                 # Create text image with max_width
                 text_image = Image.new("RGBA", (max_width + 4, total_height + 4), (0, 0, 0, 0))
@@ -1195,18 +1440,18 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
                 text_color_with_alpha = tc + (255,)
                 
                 # Draw each line centered within max_width
-                y_pos = 2
+                y_pos = indent
                 for line in lines:
                     line_bbox = draw.textbbox((0, 0), line, font=font)
-                    line_width = line_bbox[2] - line_bbox[0]
+                    line_width = int((line_bbox[2] - line_bbox[0]) * width_ratio)
                     # Center this line within max_width
                     x_pos = 2 + (max_width - line_width) // 2
                     temp_draw.text((x_pos, y_pos), line, fill=text_color_with_alpha, font=font)
-                    y_pos += normal_height + 1
+                    y_pos += normal_height
             else:
                 # Single line or align_center disabled: use original behavior
                 text_bbox = draw.textbbox((0, 0), text, font=font)
-                text_width = text_bbox[2] - text_bbox[0]
+                text_width = int((text_bbox[2] - text_bbox[0]) * width_ratio)
                 text_height = int((text_bbox[3] - text_bbox[1]) * indent_ratio + indent)
                 text_image = Image.new("RGBA", (text_width + 4, text_height + 4), (0, 0, 0, 0))
                 temp_draw = ImageDraw.Draw(text_image)
@@ -1232,7 +1477,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
                 py = box[1]
 
             # Draw background behind rotated text using dilated alpha mask.
-            dilation_filter = ImageFilter.MaxFilter(1 + 2 * text_bg_dilation)
+            dilation_filter = ImageFilter.MaxFilter(1 + 2 * bg_dilation_adjusted)
             dilated_mask = rotated_mask.filter(dilation_filter)
             bg = tuple(getattr(region, "text_bg_color", self.text_bg_color))
             bg_color_with_alpha = bg + (255,)
@@ -1264,6 +1509,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             confidence=None,
             to_update=True,
             clean_region=True,
+            clean_opacity=float(defaults.get("clean_opacity", self.clean_opacity)),
             font_family=defaults.get("font_family", self.font_family),
             font_size=int(defaults.get("font_size", self.font_size)),
             text_center=True,
@@ -1304,6 +1550,9 @@ class PreviewWidget(QtWidgets.QLabel):
         self.dragging_edge = None
         self.hovered_edge = None
         self.drag_preview_bbox = None
+        # For free-form clean selection (lasso)
+        self.free_select_points = None
+        self.free_select_widget_path = None
 
     def set_mode(self, mode):
         self.mode = mode
@@ -1319,11 +1568,7 @@ class PreviewWidget(QtWidgets.QLabel):
             self.current_image = None
             return
 
-        preview = clean_image(
-            image,
-            [region.bbox for region in region_data if region.clean_region],
-            opacity=0.9,
-        )
+        preview = clean_image(image, region_data, opacity=0.9)
         preview = parent_window.render_user_text_overlay(preview)
 
         self.current_image = preview
@@ -1347,6 +1592,13 @@ class PreviewWidget(QtWidgets.QLabel):
         if self.mode == "new_region":
             self.start_point = event.position()
             self.preview_rect = QtCore.QRect(self.start_point.toPoint(), QtCore.QSize())
+        elif self.mode == "clean_select":
+            # Start free-form selection (store image coords)
+            img_coords = self.widget_to_image_coords(event.position())
+            if img_coords is None:
+                return
+            self.free_select_points = [img_coords]
+            self.free_select_widget_path = None
         elif self.mode == "select":
             img_coords = self.widget_to_image_coords(event.position())
             resizing = False
@@ -1419,16 +1671,18 @@ class PreviewWidget(QtWidgets.QLabel):
         return cursor_map.get(edge, QtCore.Qt.ArrowCursor)
 
     def update_cursor_for_current_position(self, event):
-        if self.current_image is None or self.mode != "select":
+        if self.current_image is None:
             return
         img_coords = self.widget_to_image_coords(event.position())
-        if img_coords:
+        if img_coords and self.mode == "select":
             edge = self.detect_edge(img_coords)
             self.hovered_edge = edge
             if edge:
                 self.setCursor(self.get_cursor_for_edge(edge))
             else:
                 self.setCursor(QtCore.Qt.ArrowCursor)
+        elif img_coords and self.mode == "clean_select":
+            self.setCursor(QtCore.Qt.CrossCursor)
         else:
             self.hovered_edge = None
             self.setCursor(QtCore.Qt.ArrowCursor)
@@ -1446,6 +1700,18 @@ class PreviewWidget(QtWidgets.QLabel):
         if self.mode == "new_region" and self.start_point is not None:
             current_point = event.position()
             self.preview_rect = QtCore.QRect(self.start_point.toPoint(), current_point.toPoint()).normalized()
+            self.update()
+        elif self.mode == "clean_select":
+            self.update_cursor_for_current_position(event)
+            if self.free_select_points is None:
+                return
+            img_coords = self.widget_to_image_coords(event.position())
+            if img_coords is None:
+                return
+            last = self.free_select_points[-1]
+            # avoid appending consecutive points too close to each other
+            if abs(img_coords[0] - last[0]) > 5 or abs(img_coords[1] - last[1]) > 5:
+                self.free_select_points.append(img_coords)
             self.update()
         elif self.mode == "select":
             if self.dragging_edge:
@@ -1531,7 +1797,7 @@ class PreviewWidget(QtWidgets.QLabel):
                     self.update()
                     return
             self.parent_window.add_new_region(bbox)
-            self.parent_window.enter_select_mode()
+            self.parent_window.enter_select_mode(True)
             self.start_point = None
             self.preview_rect = None
             self.update()
@@ -1555,6 +1821,29 @@ class PreviewWidget(QtWidgets.QLabel):
             self.drag_preview_bbox = None
             self.update_cursor_for_current_position(event)
             self.start_point = None
+            self.update()
+        elif self.mode == "clean_select":
+            # Finish free-form selection and assign to selected region
+            if self.free_select_points and self.parent_window and self.parent_window.selected_index is not None:
+                if len(self.free_select_points) < 3:
+                    self.free_select_points = None
+                    self.free_select_widget_path = None
+                    self.setCursor(QtCore.Qt.ArrowCursor)
+                    self.update()
+                    return
+                # Assign the polygon (list of points) to the region
+                idx = self.parent_window.selected_index
+                try:
+                    self.parent_window.region_data[idx].clean_shape_selection = list(self.free_select_points)
+                    self.parent_window.unsaved_changes = True
+                except Exception:
+                    pass
+                # Update UI
+                self.parent_window.refresh_ui()
+            self.parent_window.enter_select_mode(True)
+            self.free_select_points = None
+            self.free_select_widget_path = None
+            self.setCursor(QtCore.Qt.ArrowCursor)
             self.update()
 
     def widget_to_image_coords(self, point):
@@ -1586,7 +1875,7 @@ class PreviewWidget(QtWidgets.QLabel):
         y = point[1] * scale + py
         return (x, y)
 
-    def draw_bbox(self, painter, bbox, color=(0, 255, 0), width=3, dash=False):
+    def draw_bbox(self, painter, bbox, color=(0, 255, 0), width=1, dash=False, opacity=0.5):
         if self.current_image is None:
             return
         x0, y0 = bbox[0]
@@ -1595,9 +1884,9 @@ class PreviewWidget(QtWidgets.QLabel):
         bottom_right = self.image_to_widget_coords((x1, y1))
         if top_left is None or bottom_right is None:
             return
-
         rect = QtCore.QRectF(top_left[0], top_left[1], bottom_right[0] - top_left[0], bottom_right[1] - top_left[1])
-        pen = QtGui.QPen(QtGui.QColor(*color), width)
+        alpha = int(max(0, min(1, float(opacity))) * 255)
+        pen = QtGui.QPen(QtGui.QColor(color[0], color[1], color[2], alpha), width)
         if dash:
             pen.setStyle(QtCore.Qt.DashLine)
         painter.setPen(pen)
@@ -1607,16 +1896,29 @@ class PreviewWidget(QtWidgets.QLabel):
         super().paintEvent(event)
         painter = QtGui.QPainter(self)
         if self.preview_rect is not None:
-            painter.setPen(QtGui.QPen(QtGui.QColor("cyan"), 2, QtCore.Qt.DashLine))
+            cyan = QtGui.QColor(0, 255, 255, int(255 * 0.5))
+            pen = QtGui.QPen(cyan, 1, QtCore.Qt.DashLine)
+            painter.setPen(pen)
             painter.drawRect(self.preview_rect)
 
         if self.mode == "select" and self.current_image is not None:
             if self.drag_preview_bbox is not None:
-                self.draw_bbox(painter, self.drag_preview_bbox, color=(255, 255, 0), width=3)
+                self.draw_bbox(painter, self.drag_preview_bbox, color=(255, 255, 0), width=1)
             elif self.selected_index is not None and self.parent_window is not None:
                 if 0 <= self.selected_index < len(self.parent_window.region_data):
                     selected_bbox = self.parent_window.region_data[self.selected_index].bbox
-                    self.draw_bbox(painter, selected_bbox, color=(0, 255, 0), width=3)
+                    self.draw_bbox(painter, selected_bbox, color=(0, 255, 0), width=1)
+
+        # Draw free-select path while in clean_select mode
+        if self.mode == "clean_select" and self.free_select_points:
+            pen = QtGui.QPen(QtGui.QColor(0, 200, 255, int(255 * 0.5)), 1)
+            brush = QtGui.QBrush(QtGui.QColor(0, 200, 255, 60))
+            painter.setPen(pen)
+            painter.setBrush(brush)
+            widget_pts = [QtCore.QPointF(*self.image_to_widget_coords(p)) for p in self.free_select_points if self.image_to_widget_coords(p) is not None]
+            if len(widget_pts) >= 2:
+                poly = QtGui.QPolygonF(widget_pts)
+                painter.drawPolygon(poly)
 
 
 def main():

@@ -36,3 +36,8 @@ manga-helper-gui = "gui:main"
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
+
+[project.optional-dependencies]
+redraw = [
+    "lama-cleaner>=0.9.1",
+]

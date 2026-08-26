@@ -9,7 +9,8 @@ from PIL import Image
 # Import from modules
 from src.ocr import detect_text_regions, sort_text_regions, extract_text, is_vertical_text
 from src.text_processor import convert_to_hiragana, convert_to_romaji, translate
-from src.image_cleaner import clean_image
+from src.image_cleaner import clean_image, extract_bbox
+from src.region_data import RegionData
 
 
 def main():
@@ -53,6 +54,15 @@ def main():
         
         # Extract text using MangaOCR (handles vertical text)
         extracted_texts = extract_text(image, sorted_regions)
+        region_data_list = [
+            RegionData(
+                bbox=extract_bbox(region),
+                ocr_text=text,
+                clean_region=True,
+                clean_opacity=0.9
+                )
+            for region, text in zip(sorted_regions, extracted_texts)
+        ]
         
         # Get translations with full context
         translations = translate(extracted_texts)
@@ -63,6 +73,9 @@ def main():
             orientation = "vertical" if is_vertical_text(bbox) else "horizontal"
             hiragana = convert_to_hiragana(text)
             romaji = convert_to_romaji(text)
+
+            region_data_list[i-1].hiragana = hiragana
+            region_data_list[i-1].romaji = romaji
             
             print(f"{i}. [{orientation}]")
             print(f"   Japanese: {text}")
@@ -79,7 +92,7 @@ def main():
         output_filename = f"output{extension}"
         output_path = input_path.parent / output_filename
         
-        cleaned = clean_image(image, text_regions, opacity=0.8)
+        cleaned = clean_image(image, region_data_list, opacity=0.8)
 
         if output_path.suffix.lower() in ['.jpg', '.jpeg']:
             background = Image.new('RGB', cleaned.size, (255, 255, 255))
