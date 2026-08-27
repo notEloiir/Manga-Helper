@@ -23,6 +23,5 @@ class RegionData:
     text_angle: float = 0.0
     text_center: bool = True
     text_align_center: bool = True
-    text_padding: int = -16
     text_color: tuple = (0, 0, 0)
     text_bg_color: tuple = (255, 255, 255)
