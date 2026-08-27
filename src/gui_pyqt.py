@@ -1067,7 +1067,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             except Exception:
                 pass
         self.preview_widget.set_selected_index(self.selected_index)
-        self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
+        # self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
 
     def on_user_text_changed(self, text):
         if self._ignore_user_text or self.selected_index is None:
@@ -1080,7 +1080,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         # # Textwrap to bbox width
         region.user_text = text
         self.unsaved_changes = True
-        self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
+        self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self, text_only=True)
 
     def on_font_settings_changed(self):
         if self._ignore_font_combo:
@@ -1108,7 +1108,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         })
         self.save_defaults()
 
-        self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
+        self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self, text_only=True)
 
     def on_angle_changed(self, value):
         self.angle_label.setText(f"{value}°")
@@ -1116,7 +1116,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             return
         self.region_data[self.selected_index].text_angle = float(value)
         self.unsaved_changes = True
-        self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
+        self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self, text_only=True)
 
     def on_text_color_clicked(self):
         color = QtWidgets.QColorDialog.getColor(
@@ -1135,7 +1135,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             self.global_defaults["text_color"] = list(new_color)
             self.save_defaults()
             self.update_text_color_button()
-            self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
+            self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self, text_only=True)
 
     def on_text_bg_color_clicked(self):
         color = QtWidgets.QColorDialog.getColor(
@@ -1152,7 +1152,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             self.global_defaults["text_bg_color"] = list(new_color)
             self.save_defaults()
             self.update_text_bg_color_button()
-            self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
+            self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self, text_only=True)
 
     def reset_text_colors(self):
         self.text_color = (0, 0, 0)
@@ -1166,7 +1166,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.save_defaults()
         self.update_text_color_button()
         self.update_text_bg_color_button()
-        self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self)
+        self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self, text_only=True)
 
     def update_text_color_button(self):
         r, g, b = self.text_color
@@ -1523,6 +1523,7 @@ class PreviewWidget(QtWidgets.QLabel):
         self.setMouseTracking(True)
         self.setCursor(QtCore.Qt.ArrowCursor)
         self.current_image = None
+        self.cleaned_image = None
         self.selected_index = None
         self.mode = "select"
         self.start_point = None
@@ -1541,7 +1542,7 @@ class PreviewWidget(QtWidgets.QLabel):
     def set_selected_index(self, index):
         self.selected_index = index
 
-    def update_preview(self, image, region_data, selected_index, parent_window):
+    def update_preview(self, image, region_data, selected_index, parent_window, text_only = False):
         self.parent_window = parent_window
         self.drag_preview_bbox = None
         if image is None:
@@ -1549,7 +1550,10 @@ class PreviewWidget(QtWidgets.QLabel):
             self.current_image = None
             return
 
-        preview = clean_image(image, region_data, opacity=0.9)
+        if not text_only or self.cleaned_image is None:
+            self.cleaned_image = clean_image(image, region_data, opacity=0.9)
+        preview = self.cleaned_image.copy()
+            
         preview = parent_window.render_user_text_overlay(preview)
 
         self.current_image = preview
