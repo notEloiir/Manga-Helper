@@ -1422,12 +1422,12 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
                 text_color_with_alpha = tc + (255,)
                 
                 # Draw each line centered within max_width
-                y_pos = normal_height // 2
+                y_pos = (normal_height * border_ratio + border) // 2
                 for line in lines:
                     line_bbox = draw.textbbox((0, 0), line, font=font)
                     line_width = int((line_bbox[2] - line_bbox[0]) * width_ratio)
                     # Center this line within max_width
-                    x_pos = (max_width - line_width) // 2
+                    x_pos = ((max_width - line_width) * border_ratio + border) // 2
                     temp_draw.text((x_pos, y_pos), line, fill=text_color_with_alpha, font=font)
                     y_pos += normal_height
             else:
