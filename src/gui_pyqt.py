@@ -976,6 +976,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         region.clean_color_override = None
         region.clean_region = True
         region.redraw_region = False
+        region.clean_shape_selection = None
         # Set radios and controls to reflect reset state (BG color)
         self.clean_mode_bg.setChecked(True)
         self.clean_mode_no.setEnabled(True)
