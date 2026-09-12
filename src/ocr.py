@@ -193,7 +193,7 @@ def _merge_bboxes(bbox1, bbox2):
     return _as_polygons(bbox1) + _as_polygons(bbox2)
 
 
-def detect_text_regions(image_path, image: Image.Image):
+def detect_text_regions(image: np.ndarray, force_merge=False):
     """Detect text regions in the image using EasyOCR.
     
     Returns list of tuples: (bboxes, text, confidence), where bboxes is a list
@@ -201,7 +201,8 @@ def detect_text_regions(image_path, image: Image.Image):
     """
     reader = get_easyocr_reader()
     # rotation_info should help with vertical text detection, but it doesn't.
-    results = reader.readtext(str(image_path),
+    results = reader.readtext(
+        image,
         detail=1,
         add_margin=0.0,
         text_threshold=0.1,
@@ -212,7 +213,7 @@ def detect_text_regions(image_path, image: Image.Image):
 
     # Merge overlapping or very close bounding boxes to reduce duplicates
     # paragraph=True does this automatically, but we want to handle it manually for smaller box to clean
-    threshold = max(image.size) * 0.004  # .4% of the image size as threshold
+    threshold = max(image.shape[:2]) * 0.004  # .4% of the image size as threshold
     found_overlapping = True
     while found_overlapping:
         found_overlapping = False
@@ -221,7 +222,7 @@ def detect_text_regions(image_path, image: Image.Image):
             for j in range(i + 1, len(results)):
                 bbox2, text2, conf2 = results[j]
                 # Check if bounding boxes overlap or are very close
-                if _bboxes_overlap_or_close(bbox1, bbox2, threshold):
+                if force_merge or _bboxes_overlap_or_close(bbox1, bbox2, threshold):
                     # Merge the two boxes
                     merged_bbox = _merge_bboxes(bbox1, bbox2)
                     merged_text = f"{text1} {text2}".strip()

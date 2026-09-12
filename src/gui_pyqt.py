@@ -744,7 +744,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.refresh_ui()
 
     def detect_and_initialize_regions(self):
-        text_regions = detect_text_regions(self.current_image_path, self.original_image)
+        text_regions = detect_text_regions(self.image_array)
         self.update_region_data(text_regions)
 
     def normalize_bbox(self, bbox):
@@ -1503,11 +1503,30 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         return [(x_min, y_min), (x_max, y_min), (x_max, y_max), (x_min, y_max)]
 
     def add_new_region(self, bbox):
-        """Add a new text region with the given bbox."""
+        """Add a new region, refining its bounds with EasyOCR when possible."""
+        cropped_image_arr = self.image_array[bbox[1][1]:bbox[2][1], bbox[0][0]:bbox[2][0]]
+        detected_regions = detect_text_regions(cropped_image_arr, force_merge=True)
+        if len(detected_regions) > 0:
+            if len(detected_regions) > 1:
+                print(f"Warning: Multiple detected regions found in new region bbox. Using first one.")
+            detected_bboxes = []
+            for detected_bbox in detected_regions[0][0]:
+                x0, y0 = bbox[0]
+                # Add the detected bbox relative to the original image coordinates
+                detected_bbox = [
+                    (x0 + detected_bbox[0][0], y0 + detected_bbox[0][1]),
+                    (x0 + detected_bbox[1][0], y0 + detected_bbox[1][1]),
+                    (x0 + detected_bbox[2][0], y0 + detected_bbox[2][1]),
+                    (x0 + detected_bbox[3][0], y0 + detected_bbox[3][1]),
+                ]
+                detected_bboxes.append(detected_bbox)
+        else:
+            detected_bboxes = []
+
         defaults = self.global_defaults or {}
         self.region_data.append(RegionData(
             normalized_bbox=bbox,
-            detected_bboxes=[bbox],
+            detected_bboxes=detected_bboxes,
             ocr_text="",
             hiragana="",
             romaji="",

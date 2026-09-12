@@ -43,7 +43,8 @@ def main():
         image = Image.open(input_path)
         
         # Detect text regions
-        text_regions = detect_text_regions(input_path, image)
+        image_array = np.array(image)
+        text_regions = detect_text_regions(image_array)
         
         if not text_regions:
             print("No text detected in the image.", file=sys.stderr)
