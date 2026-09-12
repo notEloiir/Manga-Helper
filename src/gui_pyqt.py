@@ -631,9 +631,9 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             return
         
         if not sort:
-            sorted_regions = text_regions if text_regions is not None else [ (data.bbox, data.ocr_text, data.confidence) for data in self.region_data ]
+            sorted_regions = text_regions if text_regions is not None else [ (data.normalized_bbox, data.ocr_text, data.confidence) for data in self.region_data ]
         elif text_regions is None:
-            sorted_regions = sort_text_regions([ (data.bbox, data.ocr_text, data.confidence) for data in self.region_data ])
+            sorted_regions = sort_text_regions([ (data.normalized_bbox, data.ocr_text, data.confidence) for data in self.region_data ])
         else:
             sorted_regions = sort_text_regions(text_regions)
         
@@ -651,7 +651,9 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             for index, sorted_region in enumerate(sorted_regions):
                 matched = False
                 for data in self.region_data:
-                    if data.bbox == sorted_region[0]:
+                    if data.normalized_bbox == self.normalize_bbox(
+                        self.flatten_region_geometry(sorted_region[0])
+                    ):
                         new_region_data.append(data)
                         matched = True
                         if data.to_update:
@@ -670,7 +672,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             translations = translate(extracted_texts)
         else:
             extracted_texts = [
-                data.ocr_text if not data.to_update else extract_text_from_region(self.original_image, data.bbox)
+                data.ocr_text if not data.to_update else extract_text_from_region(self.original_image, data.normalized_bbox)
                 for data in self.region_data
             ]
             translations = [
@@ -684,10 +686,17 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             if not replace_all and update_index != index:
                 continue
 
-            bbox = self.normalize_bbox(region[0])
-            orientation = "vertical" if is_vertical_text(bbox) else "horizontal"
+            detected_bboxes = [
+                [(int(point[0]), int(point[1])) for point in detected_bbox]
+                for detected_bbox in self.region_polygons(region[0])
+            ]
+            normalized_bbox = self.normalize_bbox(
+                self.flatten_region_geometry(region[0])
+            )
+            orientation = "vertical" if is_vertical_text(normalized_bbox) else "horizontal"
             data = RegionData(
-                bbox=bbox,
+                normalized_bbox=normalized_bbox,
+                detected_bboxes=detected_bboxes,
                 ocr_text=text,
                 hiragana=convert_to_hiragana(text),
                 romaji=convert_to_romaji(text),
@@ -716,6 +725,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
                     data.clean_opacity = getattr(old, "clean_opacity", data.clean_opacity)
                     data.clean_color_override = getattr(old, "clean_color_override", data.clean_color_override)
                     data.clean_shape_selection = getattr(old, "clean_shape_selection", data.clean_shape_selection)
+                    data.detected_bboxes = getattr(old, "detected_bboxes", data.detected_bboxes)
                     data.text_angle = getattr(old, "text_angle", 0.0)
                     data.font_family = getattr(old, "font_family", data.font_family)
                     data.font_size = getattr(old, "font_size", data.font_size)
@@ -734,7 +744,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.refresh_ui()
 
     def detect_and_initialize_regions(self):
-        text_regions = detect_text_regions(self.current_image_path)
+        text_regions = detect_text_regions(self.current_image_path, self.original_image)
         self.update_region_data(text_regions)
 
     def normalize_bbox(self, bbox):
@@ -743,6 +753,16 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         x_min, x_max = int(min(xs)), int(max(xs))
         y_min, y_max = int(min(ys)), int(max(ys))
         return [(x_min, y_min), (x_max, y_min), (x_max, y_max), (x_min, y_max)]
+
+    @staticmethod
+    def region_polygons(geometry):
+        if geometry and len(geometry[0]) == 2:
+            return [geometry]
+        return geometry
+
+    @classmethod
+    def flatten_region_geometry(cls, geometry):
+        return [point for polygon in cls.region_polygons(geometry) for point in polygon]
 
     def refresh_ui(self):
         self.refresh_region_list()
@@ -1255,7 +1275,8 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             "region_count": len(self.region_data),
             "regions": [
                 {
-                    "bbox": region.bbox,
+                    "normalized_bbox": region.normalized_bbox,
+                    "detected_bboxes": region.detected_bboxes,
                     "ocr_text": region.ocr_text,
                     "hiragana": region.hiragana,
                     "romaji": region.romaji,
@@ -1318,9 +1339,12 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
 
         loaded_regions = []
         for region in data.get("regions", []):
+            stored_bbox = region.get("normalized_bbox", region.get("bbox", []))
+            detected_bboxes = region.get("detected_bboxes", [])
             loaded_regions.append(
                 RegionData(
-                    bbox=region["bbox"],
+                    normalized_bbox=self.normalize_bbox(stored_bbox),
+                    detected_bboxes=detected_bboxes,
                     ocr_text=region["ocr_text"],
                     hiragana=region["hiragana"],
                     romaji=region["romaji"],
@@ -1383,8 +1407,8 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             if not text:
                 continue
 
-            x0, y0 = region.bbox[0]
-            x1, y1 = region.bbox[2]
+            x0, y0 = region.normalized_bbox[0]
+            x1, y1 = region.normalized_bbox[2]
             indent = 3
             indent_ratio = 1.3
             border = 3
@@ -1482,7 +1506,8 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         """Add a new text region with the given bbox."""
         defaults = self.global_defaults or {}
         self.region_data.append(RegionData(
-            bbox=bbox,
+            normalized_bbox=bbox,
+            detected_bboxes=[bbox],
             ocr_text="",
             hiragana="",
             romaji="",
@@ -1508,7 +1533,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
     def update_region_bbox(self, index, bbox):
         """Update the bbox of a region."""
         if 0 <= index < len(self.region_data):
-            self.region_data[index].bbox = bbox
+            self.region_data[index].normalized_bbox = bbox
             self.unsaved_changes = True
             self.refresh_ui()
 
@@ -1599,7 +1624,7 @@ class PreviewWidget(QtWidgets.QLabel):
             if not resizing and img_coords:
                 # Check if clicking on any region to select it
                 for index, region in enumerate(self.parent_window.region_data):
-                    bbox = region.bbox
+                    bbox = region.normalized_bbox
                     x0, y0 = bbox[0]
                     x1, y1 = bbox[2]
                     if x0 <= img_coords[0] <= x1 and y0 <= img_coords[1] <= y1:
@@ -1613,7 +1638,7 @@ class PreviewWidget(QtWidgets.QLabel):
         if self.selected_index is None or self.selected_index >= len(self.parent_window.region_data):
             return None
         
-        bbox = self.parent_window.region_data[self.selected_index].bbox
+        bbox = self.parent_window.region_data[self.selected_index].normalized_bbox
         x, y = img_coords
         x0, y0 = bbox[0]  # top-left
         x1, y1 = bbox[2]  # bottom-right
@@ -1717,7 +1742,7 @@ class PreviewWidget(QtWidgets.QLabel):
         # snapshot index
         index = self.selected_index
         region = self.parent_window.region_data[index]
-        bbox = region.bbox
+        bbox = region.normalized_bbox
         x0, y0 = bbox[0]
         x1, y1 = bbox[2]
         new_x, new_y = new_coords
@@ -1775,7 +1800,7 @@ class PreviewWidget(QtWidgets.QLabel):
                 return
             bbox = self.parent_window.region_bbox_from_points(img_start, img_end)
             for existing_region in self.parent_window.region_data:
-                existing_bbox = existing_region.bbox
+                existing_bbox = existing_region.normalized_bbox
                 if bbox == existing_bbox:
                     QtWidgets.QMessageBox.information(self, "Duplicate Region", "This region already exists.")
                     self.start_point = None
@@ -1892,7 +1917,7 @@ class PreviewWidget(QtWidgets.QLabel):
                 self.draw_bbox(painter, self.drag_preview_bbox, color=(255, 255, 0), width=1)
             elif self.selected_index is not None and self.parent_window is not None:
                 if 0 <= self.selected_index < len(self.parent_window.region_data):
-                    selected_bbox = self.parent_window.region_data[self.selected_index].bbox
+                    selected_bbox = self.parent_window.region_data[self.selected_index].normalized_bbox
                     self.draw_bbox(painter, selected_bbox, color=(0, 255, 0), width=1)
 
         # Draw free-select path while in clean_select mode

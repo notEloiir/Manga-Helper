@@ -43,7 +43,7 @@ def main():
         image = Image.open(input_path)
         
         # Detect text regions
-        text_regions = detect_text_regions(input_path)
+        text_regions = detect_text_regions(input_path, image)
         
         if not text_regions:
             print("No text detected in the image.", file=sys.stderr)
@@ -56,12 +56,19 @@ def main():
         extracted_texts = extract_text(image, sorted_regions)
         region_data_list = [
             RegionData(
-                bbox=extract_bbox(region),
+                normalized_bbox=[
+                    (min(point[0] for bbox in detected_bboxes for point in bbox), min(point[1] for bbox in detected_bboxes for point in bbox)),
+                    (max(point[0] for bbox in detected_bboxes for point in bbox), min(point[1] for bbox in detected_bboxes for point in bbox)),
+                    (max(point[0] for bbox in detected_bboxes for point in bbox), max(point[1] for bbox in detected_bboxes for point in bbox)),
+                    (min(point[0] for bbox in detected_bboxes for point in bbox), max(point[1] for bbox in detected_bboxes for point in bbox)),
+                ],
+                detected_bboxes=detected_bboxes,
                 ocr_text=text,
                 clean_region=True,
                 clean_opacity=0.9
                 )
             for region, text in zip(sorted_regions, extracted_texts)
+            for detected_bboxes in [[[(int(point[0]), int(point[1])) for point in bbox] for bbox in region[0]]]
         ]
         
         # Get translations with full context
@@ -69,7 +76,7 @@ def main():
         
         print("=== Detected Japanese Text (in reading order) ===\n")
         for i, (text, region, translation) in enumerate(zip(extracted_texts, sorted_regions, translations), 1):
-            bbox = region[0]
+            bbox = [point for detected_bbox in region[0] for point in detected_bbox]
             orientation = "vertical" if is_vertical_text(bbox) else "horizontal"
             hiragana = convert_to_hiragana(text)
             romaji = convert_to_romaji(text)

@@ -2,6 +2,7 @@
 
 import os
 import sys
+from math import hypot
 from pathlib import Path
 
 import numpy as np
@@ -91,43 +92,127 @@ def get_manga_ocr():
     return _manga_ocr
 
 
-def _bboxes_overlap_or_close(bbox1, bbox2, threshold=0):
-    """Check if two bounding boxes overlap or are very close to each other."""
-    x1_min, y1_min = np.min(bbox1, axis=0)
-    x1_max, y1_max = np.max(bbox1, axis=0)
-    x2_min, y2_min = np.min(bbox2, axis=0)
-    x2_max, y2_max = np.max(bbox2, axis=0)
+def _as_polygons(bboxes):
+    """Normalize one polygon or a list of polygons to a list of polygons."""
+    if len(bboxes) == 0:
+        return []
+    if all(len(point) == 2 for point in bboxes):
+        return [bboxes]
+    return bboxes
 
-    # Check for overlap
-    overlap_x = max(0, min(x1_max, x2_max) - max(x1_min, x2_min))
-    overlap_y = max(0, min(y1_max, y2_max) - max(y1_min, y2_min))
-    if overlap_x > 0 and overlap_y > 0:
+
+def _all_points(bboxes):
+    return [point for polygon in _as_polygons(bboxes) for point in polygon]
+
+
+def _orientation(a, b, c):
+    return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+
+
+def _point_on_segment(point, start, end):
+    return (
+        _orientation(start, end, point) == 0
+        and min(start[0], end[0]) <= point[0] <= max(start[0], end[0])
+        and min(start[1], end[1]) <= point[1] <= max(start[1], end[1])
+    )
+
+
+def _segments_intersect(start1, end1, start2, end2):
+    orientations = (
+        _orientation(start1, end1, start2),
+        _orientation(start1, end1, end2),
+        _orientation(start2, end2, start1),
+        _orientation(start2, end2, end1),
+    )
+    if orientations[0] == 0 and _point_on_segment(start2, start1, end1):
         return True
+    if orientations[1] == 0 and _point_on_segment(end2, start1, end1):
+        return True
+    if orientations[2] == 0 and _point_on_segment(start1, start2, end2):
+        return True
+    if orientations[3] == 0 and _point_on_segment(end1, start2, end2):
+        return True
+    return (orientations[0] > 0) != (orientations[1] > 0) and (orientations[2] > 0) != (orientations[3] > 0)
 
-    # Check for proximity (distance between boxes)
-    dist_x = max(0, max(x1_min - x2_max, x2_min - x1_max))
-    dist_y = max(0, max(y1_min - y2_max, y2_min - y1_max))
-    return dist_x < threshold and dist_y < threshold
+
+def _point_in_polygon(point, polygon):
+    inside = False
+    for index, start in enumerate(polygon):
+        end = polygon[(index + 1) % len(polygon)]
+        if _point_on_segment(point, start, end):
+            return True
+        if (start[1] > point[1]) != (end[1] > point[1]):
+            x_at_y = (end[0] - start[0]) * (point[1] - start[1]) / (end[1] - start[1]) + start[0]
+            if point[0] < x_at_y:
+                inside = not inside
+    return inside
+
+
+def _segment_distance(start1, end1, start2, end2):
+    if _segments_intersect(start1, end1, start2, end2):
+        return 0
+
+    def point_segment_distance(point, start, end):
+        dx, dy = end[0] - start[0], end[1] - start[1]
+        if dx == 0 and dy == 0:
+            return hypot(point[0] - start[0], point[1] - start[1])
+        factor = max(0, min(1, ((point[0] - start[0]) * dx + (point[1] - start[1]) * dy) / (dx * dx + dy * dy)))
+        return hypot(point[0] - (start[0] + factor * dx), point[1] - (start[1] + factor * dy))
+
+    return min(
+        point_segment_distance(start1, start2, end2),
+        point_segment_distance(end1, start2, end2),
+        point_segment_distance(start2, start1, end1),
+        point_segment_distance(end2, start1, end1),
+    )
+
+
+def _polygons_overlap_or_close(polygon1, polygon2, threshold):
+    for index, start1 in enumerate(polygon1):
+        end1 = polygon1[(index + 1) % len(polygon1)]
+        for index, start2 in enumerate(polygon2):
+            end2 = polygon2[(index + 1) % len(polygon2)]
+            if _segment_distance(start1, end1, start2, end2) <= threshold:
+                return True
+    if _point_in_polygon(polygon1[0], polygon2) or _point_in_polygon(polygon2[0], polygon1):
+        return True
+    return False
+
+
+def _bboxes_overlap_or_close(bbox1, bbox2, threshold=0):
+    """Check overlap or proximity using the original polygon geometry."""
+    return any(
+        _polygons_overlap_or_close(polygon1, polygon2, threshold)
+        for polygon1 in _as_polygons(bbox1)
+        for polygon2 in _as_polygons(bbox2)
+    )
 
 
 def _merge_bboxes(bbox1, bbox2):
-    """Merge two bounding boxes into one that encompasses both."""
-    all_points = np.vstack((bbox1, bbox2))
-    x_min, y_min = np.min(all_points, axis=0)
-    x_max, y_max = np.max(all_points, axis=0)
-    return [(x_min, y_min), (x_max, y_min), (x_max, y_max), (x_min, y_max)]
+    """Combine original polygons into one merged detection."""
+    return _as_polygons(bbox1) + _as_polygons(bbox2)
 
 
-def detect_text_regions(image_path):
+def detect_text_regions(image_path, image: Image.Image):
     """Detect text regions in the image using EasyOCR.
     
-    Returns list of tuples: (bbox, text, confidence)
-    where bbox is [(x1,y1), (x2,y2), (x3,y3), (x4,y4)]
+    Returns list of tuples: (bboxes, text, confidence), where bboxes is a list
+    of the original detected polygons belonging to the merged region.
     """
     reader = get_easyocr_reader()
-    results = reader.readtext(str(image_path), detail=1)
+    # rotation_info should help with vertical text detection, but it doesn't.
+    results = reader.readtext(str(image_path),
+        detail=1,
+        add_margin=0.0,
+        text_threshold=0.1,
+        link_threshold=0.1,
+        low_text=0.3,
+    )
+    results = [([bbox], text, confidence) for bbox, text, confidence in results]
 
     # Merge overlapping or very close bounding boxes to reduce duplicates
+    # paragraph=True does this automatically, but we want to handle it manually for smaller box to clean
+    threshold = max(image.size) * 0.004  # .4% of the image size as threshold
     found_overlapping = True
     while found_overlapping:
         found_overlapping = False
@@ -136,7 +221,7 @@ def detect_text_regions(image_path):
             for j in range(i + 1, len(results)):
                 bbox2, text2, conf2 = results[j]
                 # Check if bounding boxes overlap or are very close
-                if _bboxes_overlap_or_close(bbox1, bbox2):
+                if _bboxes_overlap_or_close(bbox1, bbox2, threshold):
                     # Merge the two boxes
                     merged_bbox = _merge_bboxes(bbox1, bbox2)
                     merged_text = f"{text1} {text2}".strip()
@@ -200,7 +285,7 @@ def is_vertical_text(bbox):
     
     Checks if bounding box height is significantly greater than width.
     """
-    points = bbox
+    points = _all_points(bbox)
     xs = [p[0] for p in points]
     ys = [p[1] for p in points]
     
@@ -226,7 +311,7 @@ def sort_text_regions(text_regions):
     for region in text_regions:
         bbox = region[0]
         # Get the top-y coordinate of the region
-        y_min = min(point[1] for point in bbox)
+        y_min = min(point[1] for point in _all_points(bbox))
         
         # Find which row this belongs to
         row_key = None
@@ -247,7 +332,7 @@ def sort_text_regions(text_regions):
     for y_key in sorted(rows.keys()):
         # Within each row, sort by x-coordinate (right to left)
         row_regions = rows[y_key]
-        row_regions.sort(key=lambda r: min(p[0] for p in r[0]), reverse=True)
+        row_regions.sort(key=lambda r: min(p[0] for p in _all_points(r[0])), reverse=True)
         sorted_regions.extend(row_regions)
     
     return sorted_regions
@@ -263,7 +348,7 @@ def extract_text(image: Image.Image, text_regions: list):
     
     texts = []
     for region in text_regions:
-        bbox = region[0]
+        bbox = _all_points(region[0])
         
         # Use MangaOCR to properly extract text from this region
         text = extract_text_from_region(image, bbox)

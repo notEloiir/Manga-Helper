@@ -26,8 +26,63 @@ def majority_element(arr):
     return candidate
 
 
+def _sample_background_pixels(image_array, polygon, border_px=5):
+    """Collect background candidate pixels from a polygon's edge bands."""
+    pts = np.array(polygon, dtype=np.int32)
+    if pts.size == 0:
+        return np.empty((0, image_array.shape[-1]), dtype=image_array.dtype)
+
+    x_min, x_max = int(pts[:, 0].min()), int(pts[:, 0].max())
+    y_min, y_max = int(pts[:, 1].min()), int(pts[:, 1].max())
+
+    h, w = image_array.shape[:2]
+    x_min = max(0, x_min)
+    y_min = max(0, y_min)
+    x_max = min(w, x_max)
+    y_max = min(h, y_max)
+
+    mask_img = Image.new('L', (w, h), 0)
+    ImageDraw.Draw(mask_img).polygon([tuple(p) for p in pts], fill=1)
+    mask = np.array(mask_img, dtype=np.uint8).astype(bool)
+
+    samples = []
+
+    top_y = min(y_min + border_px, y_max)
+    if top_y > y_min:
+        region = image_array[y_min:top_y, x_min:x_max]
+        region_mask = mask[y_min:top_y, x_min:x_max]
+        if region_mask.any():
+            samples.append(region[region_mask])
+
+    bot_y = max(y_max - border_px, y_min)
+    if bot_y < y_max:
+        region = image_array[bot_y:y_max, x_min:x_max]
+        region_mask = mask[bot_y:y_max, x_min:x_max]
+        if region_mask.any():
+            samples.append(region[region_mask])
+
+    left_x = min(x_min + border_px, x_max)
+    if left_x > x_min:
+        region = image_array[y_min:y_max, x_min:left_x]
+        region_mask = mask[y_min:y_max, x_min:left_x]
+        if region_mask.any():
+            samples.append(region[region_mask])
+
+    right_x = max(x_max - border_px, x_min)
+    if right_x < x_max:
+        region = image_array[y_min:y_max, right_x:x_max]
+        region_mask = mask[y_min:y_max, right_x:x_max]
+        if region_mask.any():
+            samples.append(region[region_mask])
+
+    if not samples:
+        return np.empty((0, image_array.shape[-1]), dtype=image_array.dtype)
+
+    return np.concatenate([sample.reshape(-1, sample.shape[-1]) for sample in samples])
+
+
 def sample_background_color(image_array, polygon, border_px=5):
-    """Sample a representative background color for a (possibly non-rectangular) polygon.
+    """Sample a representative background color for one or more polygons.
 
     This simplified approach samples pixels inside the polygon but near its edges by
     taking the top/bottom/left/right border bands of the polygon's bounding box and
@@ -43,62 +98,24 @@ def sample_background_color(image_array, polygon, border_px=5):
         tuple of (R, G, B) color values
     """
     try:
-        pts = np.array(polygon, dtype=np.int32)
-        if pts.size == 0:
+        if isinstance(polygon, np.ndarray):
+            polygon = polygon.tolist()
+        if not polygon:
             return (255, 255, 255)
 
-        x_min, x_max = int(pts[:, 0].min()), int(pts[:, 0].max())
-        y_min, y_max = int(pts[:, 1].min()), int(pts[:, 1].max())
-
-        h, w = image_array.shape[:2]
-        x_min = max(0, x_min)
-        y_min = max(0, y_min)
-        x_max = min(w, x_max)
-        y_max = min(h, y_max)
-
-        # Build polygon mask (full image size) and then slice the bounding box
-        mask_img = Image.new('L', (w, h), 0)
-        ImageDraw.Draw(mask_img).polygon([tuple(p) for p in pts], fill=1)
-        mask = np.array(mask_img, dtype=np.uint8).astype(bool)
-
-        samples = []
-
-        # Top band
-        top_y = min(y_min + border_px, y_max)
-        if top_y > y_min:
-            region = image_array[y_min:top_y, x_min:x_max]
-            region_mask = mask[y_min:top_y, x_min:x_max]
-            if region_mask.any():
-                samples.append(region[region_mask])
-
-        # Bottom band
-        bot_y = max(y_max - border_px, y_min)
-        if bot_y < y_max:
-            region = image_array[bot_y:y_max, x_min:x_max]
-            region_mask = mask[bot_y:y_max, x_min:x_max]
-            if region_mask.any():
-                samples.append(region[region_mask])
-
-        # Left band
-        left_x = min(x_min + border_px, x_max)
-        if left_x > x_min:
-            region = image_array[y_min:y_max, x_min:left_x]
-            region_mask = mask[y_min:y_max, x_min:left_x]
-            if region_mask.any():
-                samples.append(region[region_mask])
-
-        # Right band
-        right_x = max(x_max - border_px, x_min)
-        if right_x < x_max:
-            region = image_array[y_min:y_max, right_x:x_max]
-            region_mask = mask[y_min:y_max, right_x:x_max]
-            if region_mask.any():
-                samples.append(region[region_mask])
-
+        first_point = polygon[0]
+        is_polygon_list = (
+            isinstance(first_point, (list, tuple, np.ndarray))
+            and len(first_point) > 0
+            and isinstance(first_point[0], (list, tuple, np.ndarray))
+        )
+        polygons = polygon if is_polygon_list else [polygon]
+        samples = [_sample_background_pixels(image_array, item, border_px) for item in polygons]
+        samples = [sample for sample in samples if sample.size]
         if not samples:
             return (255, 255, 255)
 
-        sampled = np.concatenate([s.reshape(-1, s.shape[-1]) for s in samples])
+        sampled = np.concatenate(samples)
         sample_size = sampled.shape[0]
 
         majority_color = majority_element(sampled[:, :3])
@@ -151,15 +168,8 @@ def extract_bbox(region):
 def region_bg_color(region: RegionData, image_array: np.ndarray) -> tuple:
     region_color_override = region.clean_color_override
 
-    # Allow a per-region free-form selection to override the bbox.
-    selection = getattr(region, "clean_shape_selection", None)
-    if selection:
-        polygon = [(int(p[0]), int(p[1])) for p in selection]
-        sample_target = polygon
-    else:
-        bbox = region.bbox
-        polygon = [(int(p[0]), int(p[1])) for p in bbox]
-        sample_target = bbox
+    polygons = cleaning_polygons(region)
+    sample_target = polygons[0]
 
     if region_color_override is None:
         bg_color = sample_background_color(image_array, sample_target)
@@ -167,6 +177,20 @@ def region_bg_color(region: RegionData, image_array: np.ndarray) -> tuple:
         bg_color = region_color_override
 
     return bg_color
+
+
+def cleaning_polygons(region: RegionData) -> list:
+    """Return the polygons used to clean a region, in priority order."""
+    selection = region.clean_shape_selection
+    if selection is not None:
+        return [selection]
+
+    detected_bboxes = region.detected_bboxes or []
+    if detected_bboxes:
+        return detected_bboxes
+
+    bbox = region.normalized_bbox
+    return [bbox] if bbox else []
 
 
 def clean_image(image, text_regions, opacity=0.8):
@@ -190,28 +214,23 @@ def clean_image(image, text_regions, opacity=0.8):
         if region.clean_region is False and region.redraw_region is False:
             continue
         region_color_override = region.clean_color_override
-
-        # Allow a per-region free-form selection to override the bbox.
-        selection = getattr(region, "clean_shape_selection", None)
-        if selection:
-            polygon = [(int(p[0]), int(p[1])) for p in selection]
-            sample_target = polygon
-        else:
-            bbox = region.bbox
-            polygon = [(int(p[0]), int(p[1])) for p in bbox]
-            sample_target = bbox
-
-        if region.redraw_region:
-            redraw_polygons.append(polygon)
+        polygons = cleaning_polygons(region)
+        if not polygons:
             continue
 
         if region_color_override is None:
-            bg_color = sample_background_color(img_array, sample_target)
+            bg_color = sample_background_color(img_array, polygons)
         else:
             bg_color = region_color_override
-        alpha = int(255 * region.clean_opacity)
-        overlay_color = bg_color + (alpha,)
-        overlay_draw.polygon(polygon, fill=overlay_color)
+
+        for polygon in polygons:
+            if region.redraw_region:
+                redraw_polygons.append(polygon)
+                continue
+
+            alpha = int(255 * region.clean_opacity)
+            overlay_color = bg_color + (alpha,)
+            overlay_draw.polygon(polygon, fill=overlay_color)
     
     # Try to inpaint the region using a local inpainting model.
     if len(redraw_polygons):
