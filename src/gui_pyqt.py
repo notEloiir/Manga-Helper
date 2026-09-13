@@ -56,6 +56,8 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.clean_opacity = 0.9
         self.text_color = (0, 0, 0)  # Black
         self.text_bg_color = (255, 255, 255)  # White
+        self.gradient_enabled = False
+        self.gradient_color = (255, 255, 255)  # White
 
         # Global persistent defaults (last used settings)
         self.defaults_path = Path("config.json")
@@ -74,6 +76,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self._ignore_clean_checkbox = False
         self._ignore_angle_slider = False
         self._ignore_font_combo = False
+        self._ignore_gradient_check = False
 
         # Create tmp directory for downloads
         self.tmp_dir = Path("./tmp")
@@ -168,6 +171,8 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             "clean_opacity": self.clean_opacity,
             "text_color": list(self.text_color),
             "text_bg_color": list(self.text_bg_color),
+            "gradient_enabled": self.gradient_enabled,
+            "gradient_color": list(self.gradient_color),
             "window_width": self.window_width,
             "window_height": self.window_height,
             "fullscreen": self.fullscreen,
@@ -201,6 +206,8 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.clean_opacity = float(self.global_defaults.get("clean_opacity", self.clean_opacity))
         self.text_color = tuple(self.global_defaults.get("text_color", list(self.text_color)))
         self.text_bg_color = tuple(self.global_defaults.get("text_bg_color", list(self.text_bg_color)))
+        self.gradient_enabled = bool(self.global_defaults.get("gradient_enabled", self.gradient_enabled))
+        self.gradient_color = tuple(self.global_defaults.get("gradient_color", list(self.gradient_color)))
 
     def save_defaults(self):
         try:
@@ -212,6 +219,8 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             # ensure serializable
             data["text_color"] = list(data.get("text_color", self.text_color))
             data["text_bg_color"] = list(data.get("text_bg_color", self.text_bg_color))
+            data["gradient_enabled"] = bool(data.get("gradient_enabled", self.gradient_enabled))
+            data["gradient_color"] = list(data.get("gradient_color", self.gradient_color))
             self.defaults_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
         except Exception:
             pass
@@ -457,6 +466,17 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.text_bg_color_button.clicked.connect(self.on_text_bg_color_clicked)
         self.update_text_bg_color_button()
         settings_layout.addRow("BG Color:", self.text_bg_color_button)
+
+        self.gradient_check = QtWidgets.QCheckBox("Text Color Gradient")
+        self.gradient_check.stateChanged.connect(self.on_gradient_settings_changed)
+        settings_layout.addRow(self.gradient_check)
+
+        self.text_gradient_color_button = QtWidgets.QPushButton()
+        self.text_gradient_color_button.setFixedHeight(30)
+        self.text_gradient_color_button.setToolTip("Click to change text gradient color")
+        self.text_gradient_color_button.clicked.connect(self.on_gradient_color_clicked)
+        self.update_text_gradient_color_button()
+        settings_layout.addRow("Gradient Color:", self.text_gradient_color_button)
 
         self.reset_colors_button = QtWidgets.QPushButton("Reset Colors")
         self.reset_colors_button.setFixedHeight(30)
@@ -714,6 +734,8 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
                 text_align_center=bool(self.global_defaults.get("text_align_center", self.text_align_center)),
                 text_color=tuple(self.global_defaults.get("text_color", list(self.text_color))),
                 text_bg_color=tuple(self.global_defaults.get("text_bg_color", list(self.text_bg_color))),
+                gradient_enabled=bool(self.global_defaults.get("gradient_enabled", self.gradient_enabled)),
+                gradient_color=tuple(self.global_defaults.get("gradient_color", list(self.gradient_color))),
             )
             if not replace_all:
                 # Preserve existing region metadata when partially updating after a resize.
@@ -733,6 +755,8 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
                     data.text_align_center = getattr(old, "text_align_center", data.text_align_center)
                     data.text_color = getattr(old, "text_color", data.text_color)
                     data.text_bg_color = getattr(old, "text_bg_color", data.text_bg_color)
+                    data.gradient_enabled = getattr(old, "gradient_enabled", data.gradient_enabled)
+                    data.gradient_color = getattr(old, "gradient_color", data.gradient_color)
                 except Exception:
                     pass
                 self.region_data[index] = data
@@ -814,6 +838,8 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             region.text_align_center = bool(self.global_defaults.get("text_align_center", region.text_align_center))
             region.text_color = tuple(self.global_defaults.get("text_color", list(region.text_color)))
             region.text_bg_color = tuple(self.global_defaults.get("text_bg_color", list(region.text_bg_color)))
+            region.gradient_enabled = bool(self.global_defaults.get("gradient_enabled", getattr(region, "gradient_enabled", self.gradient_enabled)))
+            region.gradient_color = tuple(self.global_defaults.get("gradient_color", list(getattr(region, "gradient_color", self.gradient_color))))
         self.original_text.setPlainText(region.ocr_text)
         self.hiragana_text.setPlainText(region.hiragana)
         self.romaji_text.setPlainText(region.romaji)
@@ -839,6 +865,11 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.update_text_color_button()
         self.text_bg_color = tuple(getattr(region, "text_bg_color", self.text_bg_color))
         self.update_text_bg_color_button()
+        self._ignore_gradient_check = True
+        self.gradient_check.setChecked(bool(getattr(region, "gradient_enabled", self.gradient_enabled)))
+        self._ignore_gradient_check = False
+        self.gradient_color = tuple(getattr(region, "gradient_color", self.gradient_color))
+        self.update_text_gradient_color_button()
 
         # Set clean mode radios according to region.clean_region
         self._ignore_clean_checkbox = True
@@ -1175,18 +1206,55 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             self.update_text_bg_color_button()
             self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self, text_only=True)
 
+    def on_gradient_settings_changed(self):
+        if self._ignore_gradient_check:
+            return
+        self.gradient_enabled = self.gradient_check.isChecked()
+        if self.selected_index is not None and 0 <= self.selected_index < len(self.region_data):
+            self.region_data[self.selected_index].gradient_enabled = self.gradient_enabled
+            self.unsaved_changes = True
+        self.global_defaults["gradient_enabled"] = self.gradient_enabled
+        self.save_defaults()
+        self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self, text_only=True)
+
+    def on_gradient_color_clicked(self):
+        color = QtWidgets.QColorDialog.getColor(
+            QtGui.QColor(*self.gradient_color),
+            self,
+            "Select Text Gradient Color"
+        )
+        if not color.isValid():
+            return
+        new_color = (color.red(), color.green(), color.blue())
+        self.gradient_color = new_color
+        if self.selected_index is not None and 0 <= self.selected_index < len(self.region_data):
+            self.region_data[self.selected_index].gradient_color = new_color
+            self.unsaved_changes = True
+        self.global_defaults["gradient_color"] = list(new_color)
+        self.save_defaults()
+        self.update_text_gradient_color_button()
+        self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self, text_only=True)
+
     def reset_text_colors(self):
         self.text_color = (0, 0, 0)
         self.text_bg_color = (255, 255, 255)
+        self.gradient_enabled = False
+        self.gradient_color = (255, 255, 255)
         self.global_defaults["text_color"] = list(self.text_color)
         self.global_defaults["text_bg_color"] = list(self.text_bg_color)
+        self.global_defaults["gradient_enabled"] = self.gradient_enabled
+        self.global_defaults["gradient_color"] = list(self.gradient_color)
         if self.selected_index is not None and 0 <= self.selected_index < len(self.region_data):
             self.region_data[self.selected_index].text_color = self.text_color
             self.region_data[self.selected_index].text_bg_color = self.text_bg_color
+            self.region_data[self.selected_index].gradient_enabled = self.gradient_enabled
+            self.region_data[self.selected_index].gradient_color = self.gradient_color
             self.unsaved_changes = True
         self.save_defaults()
         self.update_text_color_button()
         self.update_text_bg_color_button()
+        self.gradient_check.setChecked(self.gradient_enabled)
+        self.update_text_gradient_color_button()
         self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self, text_only=True)
 
     def update_text_color_button(self):
@@ -1198,6 +1266,12 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
     def update_text_bg_color_button(self):
         r, g, b = self.text_bg_color
         self.text_bg_color_button.setStyleSheet(
+            f"background-color: rgb({r}, {g}, {b}); color: rgb({255-r}, {255-g}, {255-b});"
+        )
+
+    def update_text_gradient_color_button(self):
+        r, g, b = self.gradient_color
+        self.text_gradient_color_button.setStyleSheet(
             f"background-color: rgb({r}, {g}, {b}); color: rgb({255-r}, {255-g}, {255-b});"
         )
 
@@ -1297,6 +1371,8 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
                     "text_align_center": region.text_align_center,
                     "text_color": list(region.text_color) if isinstance(region.text_color, tuple) else region.text_color,
                     "text_bg_color": list(region.text_bg_color) if isinstance(region.text_bg_color, tuple) else region.text_bg_color,
+                    "gradient_enabled": getattr(region, "gradient_enabled", False),
+                    "gradient_color": list(getattr(region, "gradient_color", self.gradient_color)),
                 }
                 for region in self.region_data
             ],
@@ -1365,6 +1441,8 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
                     text_align_center=bool(region.get("text_align_center", self.text_align_center)),
                     text_color=tuple(region.get("text_color", list(self.text_color))),
                     text_bg_color=tuple(region.get("text_bg_color", list(self.text_bg_color))),
+                    gradient_enabled=bool(region.get("gradient_enabled", self.gradient_enabled)),
+                    gradient_color=tuple(region.get("gradient_color", list(self.gradient_color))),
                 )
             )
 
@@ -1410,7 +1488,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             x0, y0 = region.normalized_bbox[0]
             x1, y1 = region.normalized_bbox[2]
             indent = 3
-            indent_ratio = 1.3
+            indent_ratio = 1.1
             border = 3
             border_ratio = 1.1
             width_ratio = 1.05
@@ -1434,27 +1512,23 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
                     line_bboxes.append(bbox)
                 
                 line_widths = [int((bbox[2] - bbox[0]) * width_ratio) for bbox in line_bboxes]
-                line_heights = [int((bbox[3] - bbox[1]) * indent_ratio + indent) for bbox in line_bboxes]
-                normal_height = int(np.quantile(line_heights, 0.75)) if line_heights else 0
+                line_height = region.font_size * indent_ratio + indent
                 
                 max_width = int(max(line_widths) * border_ratio) + border if line_widths else 0
-                total_height = int(normal_height * (len(lines) + border_ratio)) + border
+                total_height = int(line_height * (len(lines) + border_ratio - 1.0)) + border
                 
                 # Create text image with max_width
                 text_image = Image.new("RGBA", (max_width, total_height), (0, 0, 0, 0))
                 temp_draw = ImageDraw.Draw(text_image)
-                tc = tuple(getattr(region, "text_color", self.text_color))
-                text_color_with_alpha = tc + (255,)
-                
                 # Draw each line centered within max_width
-                y_pos = (normal_height * border_ratio + border) // 2
+                y_pos = line_height * (border_ratio - 1.0) // 2 + border // 2
                 for line in lines:
                     line_bbox = draw.textbbox((0, 0), line, font=font)
                     line_width = int((line_bbox[2] - line_bbox[0]) * width_ratio)
                     # Center this line within max_width
                     x_pos = ((max_width - line_width) * border_ratio + border) // 2
-                    temp_draw.text((x_pos, y_pos), line, fill=text_color_with_alpha, font=font)
-                    y_pos += normal_height
+                    self.draw_text_with_color(temp_draw, text_image, (x_pos, y_pos), line, font, region)
+                    y_pos += line_height
             else:
                 # align_center disabled
                 text_bbox = draw.textbbox((0, 0), text, font=font)
@@ -1462,9 +1536,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
                 text_height = int((text_bbox[3] - text_bbox[1]) * indent_ratio * border_ratio + border + indent)
                 text_image = Image.new("RGBA", (text_width, text_height), (0, 0, 0, 0))
                 temp_draw = ImageDraw.Draw(text_image)
-                tc = tuple(getattr(region, "text_color", self.text_color))
-                text_color_with_alpha = tc + (255,)
-                temp_draw.text((border, border), text, fill=text_color_with_alpha, font=font)
+                self.draw_text_with_color(temp_draw, text_image, (border, border), text, font, region)
 
             angle = float(region.text_angle)
             if angle != 0.0:
@@ -1493,6 +1565,25 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             image.paste(rotated_text, (px, py), rotated_text)
 
         return image
+
+    def draw_text_with_color(self, draw, target, position, text, font, region):
+        """Draw text with a solid color or a vertical gradient."""
+        base = tuple(getattr(region, "text_color", self.text_color))
+        if not getattr(region, "gradient_enabled", False):
+            draw.text(position, text, fill=base + (255,), font=font)
+            return
+        end = tuple(getattr(region, "gradient_color", self.gradient_color))
+        mask = Image.new("L", target.size, 0)
+        ImageDraw.Draw(mask).text(position, text, fill=255, font=font)
+        gradient = Image.new("RGBA", target.size)
+        pixels = gradient.load()
+        denominator = max(1, target.height - 1)
+        for y in range(target.height):
+            ratio = y / denominator
+            color = tuple(int(base[i] + (end[i] - base[i]) * ratio) for i in range(3)) + (255,)
+            for x in range(target.width):
+                pixels[x, y] = color
+        target.paste(gradient, (0, 0), mask)
 
     def region_bbox_from_points(self, start, end):
         """Create a normalized bbox from two points."""
@@ -1543,6 +1634,8 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             text_align_center=True,
             text_color=tuple(defaults.get("text_color", list(self.text_color))),
             text_bg_color=tuple(defaults.get("text_bg_color", list(self.text_bg_color))),
+            gradient_enabled=bool(defaults.get("gradient_enabled", self.gradient_enabled)),
+            gradient_color=tuple(defaults.get("gradient_color", list(self.gradient_color))),
             ))
         self.unsaved_changes = True
         self.selected_index = len(self.region_data) - 1

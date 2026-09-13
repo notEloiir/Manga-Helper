@@ -26,6 +26,8 @@ class RegionData:
     text_align_center: bool = True
     text_color: tuple = (0, 0, 0)
     text_bg_color: tuple = (255, 255, 255)
+    gradient_enabled: bool = False
+    gradient_color: tuple = (255, 255, 255)
 
     def __post_init__(self):
         self.detected_bboxes = [
