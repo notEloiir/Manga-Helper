@@ -58,6 +58,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.text_bg_color = (255, 255, 255)  # White
         self.gradient_enabled = False
         self.gradient_color = (255, 255, 255)  # White
+        self.text_presets = [{} for _ in range(10)]
 
         # Global persistent defaults (last used settings)
         self.defaults_path = Path("config.json")
@@ -173,6 +174,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             "text_bg_color": list(self.text_bg_color),
             "gradient_enabled": self.gradient_enabled,
             "gradient_color": list(self.gradient_color),
+            "text_presets": self.text_presets,
             "window_width": self.window_width,
             "window_height": self.window_height,
             "fullscreen": self.fullscreen,
@@ -208,6 +210,12 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.text_bg_color = tuple(self.global_defaults.get("text_bg_color", list(self.text_bg_color)))
         self.gradient_enabled = bool(self.global_defaults.get("gradient_enabled", self.gradient_enabled))
         self.gradient_color = tuple(self.global_defaults.get("gradient_color", list(self.gradient_color)))
+        stored_presets = self.global_defaults.get("text_presets", self.text_presets)
+        if isinstance(stored_presets, dict):
+            stored_presets = [stored_presets.get(str(index + 1), {}) for index in range(10)]
+        if isinstance(stored_presets, list):
+            self.text_presets = [preset if isinstance(preset, dict) else {} for preset in stored_presets[:10]]
+            self.text_presets.extend({} for _ in range(10 - len(self.text_presets)))
 
     def save_defaults(self):
         try:
@@ -221,6 +229,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             data["text_bg_color"] = list(data.get("text_bg_color", self.text_bg_color))
             data["gradient_enabled"] = bool(data.get("gradient_enabled", self.gradient_enabled))
             data["gradient_color"] = list(data.get("gradient_color", self.gradient_color))
+            data["text_presets"] = self.text_presets
             self.defaults_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
         except Exception:
             pass
@@ -483,6 +492,20 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.reset_colors_button.setToolTip("Reset text colors to default black text on white background")
         self.reset_colors_button.clicked.connect(self.reset_text_colors)
         settings_layout.addRow(self.reset_colors_button)
+
+        self.text_preset_combo = QtWidgets.QComboBox()
+        self.text_preset_combo.addItems([f"Preset {index}" for index in range(1, 11)])
+        self.text_preset_combo.setToolTip("Select a saved text settings preset")
+        settings_layout.addRow("Select Preset slot:", self.text_preset_combo)
+
+        self.save_preset_button = QtWidgets.QPushButton("Save Preset")
+        self.save_preset_button.setFixedHeight(30)
+        self.save_preset_button.clicked.connect(self.save_text_preset)
+        self.load_preset_button = QtWidgets.QPushButton("Load Preset")
+        self.load_preset_button.setFixedHeight(30)
+        self.load_preset_button.clicked.connect(self.load_text_preset)
+        settings_layout.addRow(self.save_preset_button, self.load_preset_button)
+        self.update_text_preset_previews()
 
         middle_layout.addWidget(settings_group)
         middle_layout.addStretch(1)
@@ -1161,6 +1184,100 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         self.save_defaults()
 
         self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self, text_only=True)
+
+    def get_text_settings(self):
+        """Return the complete set of settings controlled by Text Settings."""
+        return {
+            "font_family": self.font_combo.currentText(),
+            "font_size": self.font_size_spin.value(),
+            "text_center": self.center_check.isChecked(),
+            "text_align_center": self.align_center_check.isChecked(),
+            "text_angle": self.angle_slider.value(),
+            "text_color": list(self.text_color),
+            "text_bg_color": list(self.text_bg_color),
+            "gradient_enabled": self.gradient_check.isChecked(),
+            "gradient_color": list(self.gradient_color),
+        }
+
+    def update_text_preset_previews(self):
+        """Show each preset using its saved font and colors in the dropdown."""
+        if not hasattr(self, "text_preset_combo"):
+            return
+        for index, preset in enumerate(self.text_presets):
+            settings = preset if preset else self.get_text_settings()
+            font = QtGui.QFont(settings.get("font_family", self.font_family), int(settings.get("font_size", self.font_size)))
+            self.text_preset_combo.setItemData(index, font, QtCore.Qt.FontRole)
+            self.text_preset_combo.setItemData(
+                index,
+                QtGui.QColor(*tuple(settings.get("text_color", self.text_color))),
+                QtCore.Qt.ForegroundRole,
+            )
+            self.text_preset_combo.setItemData(
+                index,
+                QtGui.QColor(*tuple(settings.get("text_bg_color", self.text_bg_color))),
+                QtCore.Qt.BackgroundRole,
+            )
+
+    def save_text_preset(self):
+        index = self.text_preset_combo.currentIndex()
+        self.text_presets[index] = self.get_text_settings()
+        self.global_defaults["text_presets"] = self.text_presets
+        self.save_defaults()
+        self.update_text_preset_previews()
+        self.set_status(f"Saved text settings to Preset {index + 1}.")
+
+    def load_text_preset(self):
+        index = self.text_preset_combo.currentIndex()
+        preset = self.text_presets[index]
+        if not preset:
+            self.set_status(f"Preset {index + 1} is empty.")
+            return
+
+        self._ignore_font_combo = True
+        self.font_combo.setCurrentText(preset.get("font_family", self.font_family))
+        self.font_size_spin.setValue(int(preset.get("font_size", self.font_size)))
+        self.center_check.setChecked(bool(preset.get("text_center", self.text_center)))
+        self.align_center_check.setChecked(bool(preset.get("text_align_center", self.text_align_center)))
+        self._ignore_font_combo = False
+
+        self._ignore_angle_slider = True
+        self.angle_slider.setValue(int(preset.get("text_angle", 0)))
+        self.angle_label.setText(f"{self.angle_slider.value()}°")
+        self._ignore_angle_slider = False
+
+        self.text_color = tuple(preset.get("text_color", self.text_color))
+        self.text_bg_color = tuple(preset.get("text_bg_color", self.text_bg_color))
+        self.gradient_color = tuple(preset.get("gradient_color", self.gradient_color))
+        self._ignore_gradient_check = True
+        self.gradient_check.setChecked(bool(preset.get("gradient_enabled", self.gradient_enabled)))
+        self._ignore_gradient_check = False
+        self.update_text_color_button()
+        self.update_text_bg_color_button()
+        self.update_text_gradient_color_button()
+
+        settings = self.get_text_settings()
+        self.font_family = settings["font_family"]
+        self.font_size = settings["font_size"]
+        self.text_center = settings["text_center"]
+        self.text_align_center = settings["text_align_center"]
+        self.gradient_enabled = settings["gradient_enabled"]
+        self.global_defaults.update(settings)
+        if self.selected_index is not None and 0 <= self.selected_index < len(self.region_data):
+            region = self.region_data[self.selected_index]
+            region.font_family = settings["font_family"]
+            region.font_size = settings["font_size"]
+            region.text_center = settings["text_center"]
+            region.text_align_center = settings["text_align_center"]
+            region.text_angle = settings["text_angle"]
+            region.text_color = tuple(settings["text_color"])
+            region.text_bg_color = tuple(settings["text_bg_color"])
+            region.gradient_enabled = settings["gradient_enabled"]
+            region.gradient_color = tuple(settings["gradient_color"])
+            self.unsaved_changes = True
+        self.save_defaults()
+        self.update_text_preset_previews()
+        self.preview_widget.update_preview(self.original_image, self.region_data, self.selected_index, self, text_only=True)
+        self.set_status(f"Loaded text settings from Preset {index + 1}.")
 
     def on_angle_changed(self, value):
         self.angle_label.setText(f"{value}°")
