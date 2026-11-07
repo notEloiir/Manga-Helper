@@ -618,6 +618,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         if not url:
             return
 
+        self.clear_image_state()
         self.set_status("Downloading image...")
         QtWidgets.QApplication.processEvents()
 
@@ -639,7 +640,34 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
             if temp_path.exists():
                 temp_path.unlink()
 
+    def clear_image_state(self):
+        self.current_image_path = None
+        self.original_image = None
+        self.image_array = None
+        self.region_data = []
+        self.selected_index = None
+        self.unsaved_changes = False
+        self.mode = "select"
+        for action, checked in (
+            (self.select_action, True),
+            (self.add_region_action, False),
+            (self.clean_select_button, False),
+        ):
+            action.blockSignals(True)
+            action.setChecked(checked)
+            action.blockSignals(False)
+        self.preview_widget.set_mode(self.mode)
+        self.preview_widget.start_point = None
+        self.preview_widget.preview_rect = None
+        self.preview_widget.dragging_edge = None
+        self.preview_widget.drag_preview_bbox = None
+        self.preview_widget.free_select_points = None
+        self.preview_widget.free_select_widget_path = None
+        self.refresh_ui()
+
     def load_image(self, path):
+        self.clear_image_state()
+
         try:
             image = Image.open(path).convert("RGBA")
         except Exception as exc:
@@ -1803,6 +1831,7 @@ class PreviewWidget(QtWidgets.QLabel):
         if image is None:
             self.clear()
             self.current_image = None
+            self.cleaned_image = None
             return
 
         if not text_only or self.cleaned_image is None:
