@@ -1468,7 +1468,6 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         else:
             image_to_save.save(output_path)
 
-        self.unsaved_changes = False
         self.set_status(f"Saved cleaned image and text export to {output_path.name}")
 
     def save_regions(self):
@@ -1526,6 +1525,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         with export_path.open("w", encoding="utf-8") as handle:
             json.dump(export_data, handle, ensure_ascii=False)
 
+        self.unsaved_changes = False
         self.set_status(f"Regions exported to {export_path.name}")
 
     def load_regions(self):
