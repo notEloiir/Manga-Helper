@@ -1609,7 +1609,7 @@ class MangaHelperGUI(QtWidgets.QMainWindow):
         if answer == QtWidgets.QMessageBox.Cancel:
             return False
         if answer == QtWidgets.QMessageBox.Yes:
-            self.save_image()
+            self.save_regions()
         return True
 
     def closeEvent(self, event):
